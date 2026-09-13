@@ -31,6 +31,14 @@ An internet connection is required (Firebase Auth + Firestore).
 
 Change these before real use: log in → **Settings → Change Password**.
 
+**Roles:**
+
+- **Admin** — everything: Dashboard, Vehicles, Movement Entries, Reports,
+  Audit Log, Settings (incl. data management and user management).
+- **Operator** — Movement Entries only (record/edit daily trips), plus
+  changing their own password via the avatar menu. All other routes
+  redirect back to Movement Entries.
+
 ## 2. Architecture
 
 ```
@@ -97,7 +105,24 @@ libraries (SheetJS, jsPDF) are vendored in `js/vendor/`.
 - **Reset to Bundled Sample Data** (Settings): replaces the cloud data with
   `data/vehicle-register.xlsx`. Affects every user immediately.
 
-## 6. Security notes
+## 6. Tests
+
+`tests/e2e.js` is a comprehensive end-to-end suite (31 tests) that drives
+the real app in headless Chrome against the real Firebase backend: auth
+flows, role gating for both roles, vehicle/movement CRUD and validation,
+reports, the audit trail, settings guards, and live sync across two
+separate browser contexts. Test records are tagged `E2E` and removed from
+Firestore automatically (including stale ones from aborted runs).
+
+```bash
+cd tests && npm install
+node e2e.js                 # against http://localhost:8090
+node e2e.js https://<user>.github.io/<repo>/   # against the live site
+```
+
+Set `CHROME_PATH` if Chrome is not at the default macOS location.
+
+## 7. Security notes
 
 - Anyone who can sign in can read/write the register (Firestore rules).
   Keep accounts limited and deactivate users who leave (Settings → User
@@ -108,7 +133,7 @@ libraries (SheetJS, jsPDF) are vendored in `js/vendor/`.
   only be **deactivated**, never deleted, so the audit trail stays intact.
 - Change the default demo passwords before sharing the URL.
 
-## 7. Project structure
+## 8. Project structure
 
 ```
 index.html                 Login screen + app shell
@@ -125,7 +150,7 @@ data/vehicle-register.xlsx  Bundled sample/seed data + import/export template
 firestore.rules             Firestore security rules (paste into Firebase console)
 ```
 
-## 8. Customizing
+## 9. Customizing
 
 - **Unit name / report title:** search for `03 BN NDRF, MUNDALI` in
   `js/pages.js` (report export functions) and replace it.

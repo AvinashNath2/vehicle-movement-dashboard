@@ -1,0 +1,11 @@
+{
+  "name": "vmd-e2e-tests",
+  "private": true,
+  "description": "End-to-end tests for the Vehicle Movement Dashboard (headless Chrome against the real Firebase backend)",
+  "scripts": {
+    "test": "node e2e.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^24.0.0"
+  }
+}

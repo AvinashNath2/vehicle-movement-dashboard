@@ -684,7 +684,7 @@ function renderAuditPage(container){
 function renderSettingsPage(container){
   const isAdmin = App.user.Role === 'Admin';
   container.innerHTML = `
-    <div class="two-col">
+    <div class="${isAdmin ? 'two-col' : ''}" style="${isAdmin ? '' : 'max-width:520px'}">
       <div class="card card-pad">
         <div class="section-title" style="margin-top:0">Profile</div>
         <div class="kv-row"><span class="k">Display Name</span><span class="v">${escapeHtml(App.user.DisplayName)}</span></div>
@@ -700,10 +700,11 @@ function renderSettingsPage(container){
         </form>
       </div>
 
+      ${isAdmin ? `
       <div class="card card-pad">
         <div class="section-title" style="margin-top:0">Data Management</div>
         <div class="kv-row"><span class="k">Data Source</span><span class="v">${escapeHtml(DB.meta.source || '—')}</span></div>
-        <div class="kv-row"><span class="k">Last Loaded</span><span class="v">${DB.meta.loadedAt ? formatDateTime(DB.meta.loadedAt) : '—'}</span></div>
+        <div class="kv-row"><span class="k">Last Synced</span><span class="v">${DB.meta.loadedAt ? formatDateTime(DB.meta.loadedAt) : '—'}</span></div>
         <p class="helper-text">Data is stored in Cloud Firestore and shared live with every user. Export a backup regularly for safekeeping. Importing a backup or resetting affects <strong>all users immediately</strong>.</p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
           <button class="btn btn-outline" id="btn-export-backup" type="button">${icon('download')} Export Full Backup (.xlsx)</button>
@@ -711,7 +712,7 @@ function renderSettingsPage(container){
           <input type="file" id="import-file" accept=".xlsx" hidden>
           <button class="btn btn-danger" id="btn-reset" type="button">${icon('refresh')} Reset to Bundled Sample Data</button>
         </div>
-      </div>
+      </div>` : ''}
     </div>
 
     ${isAdmin ? `
@@ -747,6 +748,8 @@ function renderSettingsPage(container){
       else { fail('Could not update password: ' + (err.message || err.code)); console.error(err); }
     }
   });
+
+  if (!isAdmin) return;
 
   $('#btn-export-backup').addEventListener('click', () => { DB.exportBackupXlsx(); toast('success', 'Backup downloaded'); });
 

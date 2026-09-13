@@ -11,7 +11,6 @@ const ICONS = {
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
   trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/><path d="M10 11v6M14 11v6"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
-  chevronDown: '<path d="m6 9 6 6 6-6"/>',
   chevronLeft: '<path d="m15 18-6-6 6-6"/>',
   chevronRight: '<path d="m9 18 6-6-6-6"/>',
   download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
@@ -20,11 +19,8 @@ const ICONS = {
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4.5 5-6 8-6s6.5 1.5 8 6"/>',
   calendar: '<rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
-  alert: '<path d="M12 9v4"/><path d="M12 17h.01"/><circle cx="12" cy="12" r="9"/>',
   alertTriangle: '<path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
-  filter: '<path d="M4 5h16M7 12h10M10 19h4"/>',
-  history: '<path d="M3 3v6h6"/><path d="M3.5 13a8.5 8.5 0 1 0 2.3-6.7L3 9"/><path d="M12 8v4l3 2"/>',
   fleet: '<path d="M3 16h4M3 12h.01"/><path d="M4 16V9l2-4h9l2 4v7"/><circle cx="8" cy="16" r="1.7"/><circle cx="16" cy="16" r="1.7"/><path d="M17 9h3l2 3v4h-3"/>',
   route: '<circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8 6h6a4 4 0 0 1 4 4v0a4 4 0 0 1-4 4H8"/>',
   flag: '<path d="M6 21V4"/><path d="M6 4h11l-2.5 4L17 12H6"/>',
@@ -33,7 +29,6 @@ const ICONS = {
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
   refresh: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 8.7-8.7"/><path d="m16.5 6 2.5 2.5M14 8.5 16.5 11"/>',
-  building: '<path d="M4 21h16"/><path d="M6 21V4h8v17"/><path d="M14 21V9h4v12"/><path d="M9 8h1M9 11h1M9 14h1"/>',
 };
 
 function icon(name, cls){

@@ -97,10 +97,6 @@ function fmtKm(n){
   return `${formatNumber(n)} km`;
 }
 
-function classNames(...parts){
-  return parts.filter(Boolean).join(' ');
-}
-
 /* ---------------- toasts ---------------- */
 function toast(type, title, msg){
   const stack = $('#toast-stack');

@@ -1,25 +1,41 @@
 /* App shell: boot, auth, routing, top-level chrome. Page bodies live in pages.js */
 
-const App = {
-  user: null,
-  route: 'dashboard',
-  filters: {
+function makeDefaultFilters(){
+  return {
     dashboard: { from: todayISO(), to: todayISO(), vehicle: 'ALL' },
     movements: { view: 'form', search: '', from: '', to: '', vehicle: 'ALL', driver: '', requestedBy: '', page: 1, editingId: null },
     vehicles: { search: '', status: 'ALL', page: 1 },
     reports: { from: todayISO(), to: todayISO(), vehicle: 'ALL', generated: false },
     audit: { search: '', from: '', to: '', page: 1 },
-  },
+  };
+}
+
+const App = {
+  user: null,
+  route: 'dashboard',
+  filters: makeDefaultFilters(),
 };
 
+/* Operators only work the daily register: their nav shows Movement Entries
+   alone, and Settings stays reachable via the avatar menu for password
+   changes. Everything else is Admin-only (guarded in onRouteChange too). */
 const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Dashboard', icon: 'home' },
-  { id: 'vehicles', label: 'Vehicles', icon: 'car' },
-  { id: 'movements', label: 'Movement Entries', icon: 'doc' },
-  { id: 'reports', label: 'Reports', icon: 'list' },
-  { id: 'audit', label: 'Audit Log', icon: 'clock' },
-  { id: 'settings', label: 'Settings', icon: 'gear' },
+  { id: 'dashboard', label: 'Dashboard', icon: 'home', roles: ['Admin'] },
+  { id: 'vehicles', label: 'Vehicles', icon: 'car', roles: ['Admin'] },
+  { id: 'movements', label: 'Movement Entries', icon: 'doc', roles: ['Admin', 'Operator'] },
+  { id: 'reports', label: 'Reports', icon: 'list', roles: ['Admin'] },
+  { id: 'audit', label: 'Audit Log', icon: 'clock', roles: ['Admin'] },
+  { id: 'settings', label: 'Settings', icon: 'gear', roles: ['Admin', 'Operator'], operatorHiddenInNav: true },
 ];
+
+function isAdmin(){ return App.user?.Role === 'Admin'; }
+function allowedRoutes(){
+  return NAV_ITEMS.filter(n => n.roles.includes(App.user?.Role)).map(n => n.id);
+}
+function navItems(){
+  return NAV_ITEMS.filter(n => n.roles.includes(App.user?.Role) && !(n.operatorHiddenInNav && !isAdmin()));
+}
+function defaultRoute(){ return isAdmin() ? 'dashboard' : 'movements'; }
 
 function bootError(msg, err){
   hideLoadingOverlay();
@@ -125,6 +141,9 @@ async function handleLogin(e){
     }
     App.user = u;
     DB.logAudit(u, 'Login', 'User', u.Username, 'User signed in');
+    // Fresh sign-in: don't inherit the previous user's page or filters.
+    App.filters = makeDefaultFilters();
+    history.replaceState(null, '', '#/' + defaultRoute());
     enterApp();
   } catch (err){
     if (['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password', 'auth/invalid-email'].includes(err.code)){
@@ -160,7 +179,7 @@ function renderShell(){
         <div class="name">Vehicle Movement</div>
       </div>
       <nav class="nav" id="nav-list">
-        ${NAV_ITEMS.map(n => `
+        ${navItems().map(n => `
           <a href="#/${n.id}" class="nav-item" data-nav="${n.id}">${icon(n.icon)}<span>${n.label}</span></a>
         `).join('')}
       </nav>
@@ -210,9 +229,10 @@ function renderShell(){
 }
 
 function onRouteChange(){
-  const hash = (location.hash || '#/dashboard').replace('#/', '');
-  const valid = NAV_ITEMS.some(n => n.id === hash);
-  App.route = valid ? hash : 'dashboard';
+  if (!App.user) return;
+  const hash = (location.hash || '').replace('#/', '');
+  App.route = allowedRoutes().includes(hash) ? hash : defaultRoute();
+  if (hash !== App.route) history.replaceState(null, '', '#/' + App.route);
   $$('.nav-item').forEach(a => a.classList.toggle('active', a.dataset.nav === App.route));
   $('#page-title').textContent = (NAV_ITEMS.find(n => n.id === App.route) || {}).label || 'Dashboard';
   $('#sidebar').classList.remove('open');
