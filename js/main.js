@@ -1,7 +1,5 @@
 /* App shell: boot, auth, routing, top-level chrome. Page bodies live in pages.js */
 
-const SESSION_KEY = 'vmd_session_v1';
-
 const App = {
   user: null,
   route: 'dashboard',
@@ -23,29 +21,53 @@ const NAV_ITEMS = [
   { id: 'settings', label: 'Settings', icon: 'gear' },
 ];
 
-async function boot(){
-  showLoadingOverlay('Loading register…');
-  try {
-    await DB.init();
-  } catch (err){
-    hideLoadingOverlay();
-    $('#login-error').textContent = 'Could not load the vehicle register data file. If you are opening this file directly (file://), please serve it over http(s) — see README.';
-    $('#login-error').hidden = false;
-    console.error(err);
+function bootError(msg, err){
+  hideLoadingOverlay();
+  $('#login-error').textContent = msg;
+  $('#login-error').hidden = false;
+  if (err) console.error(err);
+}
+
+function boot(){
+  showLoadingOverlay('Connecting…');
+  if (!window.FB){
+    bootError('Could not load Firebase. Check your internet connection and reload.');
+    showLoginKeepError();
     return;
   }
-  hideLoadingOverlay();
-
-  const savedSession = sessionStorage.getItem(SESSION_KEY);
-  if (savedSession){
-    const u = DB.findUser(savedSession);
-    if (u && String(u.Active).toLowerCase() !== 'no'){
-      App.user = u;
-      enterApp();
-      return;
+  // First callback reflects the restored session (Firebase persists logins
+  // across restarts). Later auth changes are handled by login/logout directly.
+  let handledRestore = false;
+  FB.onAuthStateChanged(FB.auth, async (fbUser) => {
+    if (handledRestore) return;
+    handledRestore = true;
+    if (fbUser){
+      try {
+        await DB.init();
+        const username = fbUser.email.split('@')[0];
+        const u = DB.findUser(username);
+        if (u && String(u.Active).toLowerCase() !== 'no'){
+          App.user = u;
+          hideLoadingOverlay();
+          enterApp();
+          return;
+        }
+        DB.teardown();
+        await FB.signOut(FB.auth);
+      } catch (err){
+        bootError('Could not connect to the cloud database. Check your internet connection and reload.', err);
+        showLoginKeepError();
+        return;
+      }
     }
-  }
-  showLogin();
+    hideLoadingOverlay();
+    showLogin();
+  });
+}
+
+function showLoginKeepError(){
+  $('#app-shell').hidden = true;
+  $('#login-screen').hidden = false;
 }
 
 function showLoadingOverlay(msg){
@@ -77,9 +99,9 @@ function enterApp(){
   onRouteChange();
 }
 
-function handleLogin(e){
+async function handleLogin(e){
   e.preventDefault();
-  const username = $('#login-username').value.trim();
+  const username = $('#login-username').value.trim().toLowerCase();
   const password = $('#login-password').value;
   const errBox = $('#login-error');
   if (!username || !password){
@@ -90,27 +112,42 @@ function handleLogin(e){
   const btn = $('#login-submit');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Signing in…';
-  setTimeout(() => {
-    const u = DB.verifyLogin(username, password);
-    btn.disabled = false;
-    btn.textContent = 'Login';
-    if (!u){
-      errBox.textContent = 'Invalid username or password.';
-      errBox.hidden = false;
+  const fail = (msg) => { errBox.textContent = msg; errBox.hidden = false; };
+  try {
+    await FB.signInWithEmailAndPassword(FB.auth, DB.emailFor(username), password);
+    await DB.init();
+    const u = DB.findUser(username);
+    if (!u || String(u.Active).toLowerCase() === 'no'){
+      DB.teardown();
+      await FB.signOut(FB.auth);
+      fail(!u ? 'This account has no profile. Ask an admin to re-create it.' : 'This account has been deactivated. Contact an admin.');
       return;
     }
     App.user = u;
-    sessionStorage.setItem(SESSION_KEY, u.Username);
     DB.logAudit(u, 'Login', 'User', u.Username, 'User signed in');
-    DB.persist();
     enterApp();
-  }, 250);
+  } catch (err){
+    if (['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password', 'auth/invalid-email'].includes(err.code)){
+      fail('Invalid username or password.');
+    } else if (err.code === 'auth/too-many-requests'){
+      fail('Too many failed attempts. Wait a few minutes and try again.');
+    } else if (err.code === 'auth/network-request-failed'){
+      fail('Network error — check your internet connection.');
+    } else {
+      fail('Sign-in failed: ' + (err.message || err.code || 'unknown error'));
+      console.error(err);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Login';
+  }
 }
 
-function handleLogout(){
-  if (App.user) { DB.logAudit(App.user, 'Logout', 'User', App.user.Username, 'User signed out'); DB.persist(); }
-  sessionStorage.removeItem(SESSION_KEY);
+async function handleLogout(){
+  if (App.user) await DB.logAudit(App.user, 'Logout', 'User', App.user.Username, 'User signed out');
   App.user = null;
+  DB.teardown();
+  try { await FB.signOut(FB.auth); } catch(e){ console.error(e); }
   showLogin();
 }
 
@@ -127,7 +164,7 @@ function renderShell(){
           <a href="#/${n.id}" class="nav-item" data-nav="${n.id}">${icon(n.icon)}<span>${n.label}</span></a>
         `).join('')}
       </nav>
-      <div class="sidebar-foot">Daily Vehicle Movement Register<br>Static build · data stored in this browser</div>
+      <div class="sidebar-foot">Daily Vehicle Movement Register<br>Live · data synced via Cloud Firestore</div>
     </div>
     <div class="main">
       <div class="topbar">
@@ -195,6 +232,18 @@ function renderPage(route){
   };
   (renderers[route] || renderDashboardPage)(container);
 }
+
+// Re-render the current page when another device changes data — but never
+// mid-interaction: skip if a modal is open, the movement form is showing,
+// or the user is typing in a field.
+DB.onRemoteChange = debounce(() => {
+  if (!App.user) return;
+  if ($('#active-modal')) return;
+  if (App.route === 'movements' && App.filters.movements.view === 'form') return;
+  const ae = document.activeElement;
+  if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;
+  renderPage(App.route);
+}, 300);
 
 document.addEventListener('DOMContentLoaded', () => {
   $('#login-form').addEventListener('submit', handleLogin);

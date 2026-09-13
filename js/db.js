@@ -1,116 +1,85 @@
 /* ==========================================================================
-   Data layer.
+   Data layer — Cloud Firestore.
 
-   This app has no backend: on GitHub Pages every "write" happens in the
-   visitor's own browser. The bundled file at data/vehicle-register.xlsx is
-   the shared starting point (baseline); after that, all creates/edits live
-   in this browser's localStorage until someone exports a backup (Settings →
-   Data Management) and commits it back into data/vehicle-register.xlsx, or
-   imports a fresh register. That is the documented trade-off for a static,
-   file-backed app — see the README.
+   All records live in Firestore collections (vehicles, users, movements,
+   auditLog) shared by every visitor. Live snapshot listeners keep the
+   in-memory arrays below up to date, so page renderers can keep reading
+   DB.vehicles / DB.movements synchronously exactly like before.
+
+   Mutations update the local array immediately (so the UI can re-render
+   right away) and write through to Firestore in the background; a failed
+   write surfaces as an error toast.
+
+   User credentials live in Firebase Authentication (usernames are mapped to
+   synthetic emails via emailFor()) — the users collection only holds
+   profile data (DisplayName, Role, Active), never passwords.
+
+   data/vehicle-register.xlsx remains as the seed/reset baseline and the
+   import/export format.
    ========================================================================== */
 
-const STORAGE_KEY = 'vmd_database_v1';
 const BASELINE_URL = 'data/vehicle-register.xlsx';
+const EMAIL_DOMAIN = 'vmd-fleet.app';
 
 const DB = {
   vehicles: [],
   users: [],
   movements: [],
   auditLog: [],
-  meta: { source: '', loadedAt: '' },
+  meta: { source: 'Cloud Firestore (live)', loadedAt: '' },
 
+  _unsubs: [],
+  _ready: false,
+  onRemoteChange: null, // set by main.js
+
+  emailFor(username){
+    return String(username || '').trim().toLowerCase() + '@' + EMAIL_DOMAIN;
+  },
+
+  /* ---------------- live subscriptions ---------------- */
   async init(){
-    const cached = localStorage.getItem(STORAGE_KEY);
-    if (cached){
-      try {
-        const parsed = JSON.parse(cached);
-        // A snapshot without any users would lock everyone out of login
-        // permanently — treat it (and any other malformed shape) as corrupt
-        // and fall back to the bundled baseline.
-        const valid = parsed
-          && Array.isArray(parsed.vehicles)
-          && Array.isArray(parsed.movements)
-          && Array.isArray(parsed.auditLog)
-          && Array.isArray(parsed.users) && parsed.users.length > 0;
-        if (valid){
-          Object.assign(this, parsed);
-          return;
+    if (!window.FB) throw new Error('Firebase SDK did not load — check your internet connection.');
+    if (this._unsubs.length) return; // already subscribed
+
+    const { db, collection, onSnapshot } = FB;
+    const subscribe = (name, assign) => new Promise((resolve, reject) => {
+      let first = true;
+      const unsub = onSnapshot(collection(db, name), (snap) => {
+        assign(snap.docs.map(d => d.data()));
+        this.meta.loadedAt = new Date().toISOString();
+        if (first){ first = false; resolve(); }
+        else if (this._ready && !snap.metadata.hasPendingWrites && typeof this.onRemoteChange === 'function'){
+          this.onRemoteChange();
         }
-      } catch(e){ /* fall through to reload baseline */ }
-    }
-    await this.loadBaseline();
+      }, (err) => {
+        if (first){ first = false; reject(err); }
+        else console.error(`Snapshot listener for "${name}" failed:`, err);
+      });
+      this._unsubs.push(unsub);
+    });
+
+    const desc = (field) => (a, b) => String(b[field]).localeCompare(String(a[field]));
+    await Promise.all([
+      subscribe('vehicles',  rows => this.vehicles  = rows.sort(desc('AddedOn'))),
+      subscribe('users',     rows => this.users     = rows),
+      subscribe('movements', rows => this.movements = rows.sort(desc('CreatedAt'))),
+      subscribe('auditLog',  rows => this.auditLog  = rows.sort(desc('Timestamp'))),
+    ]);
+    this._ready = true;
   },
 
-  async loadBaseline(){
-    const res = await fetch(BASELINE_URL, { cache: 'no-store' });
-    if (!res.ok) throw new Error('Could not load ' + BASELINE_URL);
-    const buf = await res.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
-    this._loadFullWorkbook(wb);
-    this.meta.source = 'Bundled register (data/vehicle-register.xlsx)';
-    this.meta.loadedAt = new Date().toISOString();
-    this.persist();
+  teardown(){
+    this._unsubs.forEach(u => { try { u(); } catch(e){} });
+    this._unsubs = [];
+    this._ready = false;
+    this.vehicles = []; this.users = []; this.movements = []; this.auditLog = [];
   },
 
-  _loadFullWorkbook(wb){
-    const sheet = (name) => wb.Sheets[name] ? XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }) : [];
-    this.vehicles = sheet('Vehicles').map(v => ({
-      RegistrationNo: String(v.RegistrationNo || '').trim().toUpperCase(),
-      VehicleType: String(v.VehicleType || '').trim(),
-      Status: v.Status || 'Active',
-      AddedOn: v.AddedOn || todayISO(),
-      AddedBy: v.AddedBy || 'system',
-    })).filter(v => v.RegistrationNo);
-    this.users = sheet('Users').map(u => ({
-      Username: String(u.Username || '').trim(),
-      DisplayName: u.DisplayName || u.Username,
-      Password: String(u.Password ?? ''),
-      Role: u.Role || 'Operator',
-      Active: u.Active === undefined || u.Active === '' ? 'Yes' : u.Active,
-    })).filter(u => u.Username);
-    this.movements = sheet('Movements').map(m => ({
-      ID: String(m.ID || uid('MOV')),
-      Date: m.Date || todayISO(),
-      RegistrationNo: String(m.RegistrationNo || '').trim().toUpperCase(),
-      VehicleType: m.VehicleType || '',
-      DriverName: m.DriverName || '',
-      RequestedBy: m.RequestedBy || '',
-      OpeningTime: m.OpeningTime === undefined ? '' : String(m.OpeningTime),
-      OpeningKM: Number(m.OpeningKM || 0),
-      ClosingTime: m.ClosingTime === undefined ? '' : String(m.ClosingTime),
-      ClosingKM: Number(m.ClosingKM || 0),
-      TotalKM: Number(m.TotalKM || (Number(m.ClosingKM||0) - Number(m.OpeningKM||0)) || 0),
-      PurposePlace: m.PurposePlace || '',
-      PermittedBy: m.PermittedBy || '',
-      Remarks: m.Remarks || '',
-      CreatedBy: m.CreatedBy || 'system',
-      CreatedAt: m.CreatedAt || new Date().toISOString(),
-      UpdatedBy: m.UpdatedBy || '',
-      UpdatedAt: m.UpdatedAt || '',
-    }));
-    this.auditLog = sheet('AuditLog').map((a, i) => ({
-      ID: a.ID || i + 1,
-      Timestamp: a.Timestamp || new Date().toISOString(),
-      User: a.User || 'system',
-      Action: a.Action || 'Created',
-      RecordType: a.RecordType || '',
-      RecordId: a.RecordId || '',
-      Details: a.Details || '',
-    }));
-  },
-
-  persist(){
-    const snapshot = {
-      vehicles: this.vehicles, users: this.users, movements: this.movements,
-      auditLog: this.auditLog, meta: this.meta,
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-  },
-
-  async resetToBundled(){
-    localStorage.removeItem(STORAGE_KEY);
-    await this.loadBaseline();
+  _write(promise){
+    promise.catch(err => {
+      console.error('Firestore write failed:', err);
+      toast('error', 'Cloud sync failed', 'Your last change may not be saved. ' + (err.message || ''));
+    });
   },
 
   /* ---------------- vehicles ---------------- */
@@ -126,29 +95,39 @@ const DB = {
     const reg = String(RegistrationNo).trim().toUpperCase();
     const v = { RegistrationNo: reg, VehicleType: VehicleType.trim(), Status: 'Active', AddedOn: todayISO(), AddedBy: user.Username };
     this.vehicles.unshift(v);
+    this._write(FB.setDoc(FB.doc(FB.db, 'vehicles', reg), v));
     this.logAudit(user, 'Created', 'Vehicle', reg, `Vehicle added (${v.VehicleType})`);
-    this.persist();
     return v;
   },
   updateVehicle(regNo, patch, user){
     const v = this.findVehicle(regNo);
     if (!v) return null;
+    const oldReg = v.RegistrationNo;
     const changes = [];
     if (patch.VehicleType && patch.VehicleType.trim() !== v.VehicleType){
       changes.push(`Type: "${v.VehicleType}" → "${patch.VehicleType.trim()}"`);
       v.VehicleType = patch.VehicleType.trim();
     }
+    let renamed = false;
     if (patch.RegistrationNo){
       const newReg = patch.RegistrationNo.trim().toUpperCase();
       if (newReg !== v.RegistrationNo){
         changes.push(`Reg. No: "${v.RegistrationNo}" → "${newReg}"`);
-        this.movements.forEach(m => { if (m.RegistrationNo === v.RegistrationNo) m.RegistrationNo = newReg; });
+        this.movements.forEach(m => { if (m.RegistrationNo === oldReg) m.RegistrationNo = newReg; });
         v.RegistrationNo = newReg;
+        renamed = true;
       }
     }
     if (changes.length){
+      const batch = FB.writeBatch(FB.db);
+      if (renamed) batch.delete(FB.doc(FB.db, 'vehicles', oldReg));
+      batch.set(FB.doc(FB.db, 'vehicles', v.RegistrationNo), { ...v });
+      if (renamed){
+        this.movements.filter(m => m.RegistrationNo === v.RegistrationNo)
+          .forEach(m => batch.update(FB.doc(FB.db, 'movements', m.ID), { RegistrationNo: v.RegistrationNo }));
+      }
+      this._write(batch.commit());
       this.logAudit(user, 'Updated', 'Vehicle', v.RegistrationNo, changes.join('; '));
-      this.persist();
     }
     return v;
   },
@@ -157,8 +136,8 @@ const DB = {
     if (!v) return null;
     if (v.Status === status) return v;
     v.Status = status;
+    this._write(FB.updateDoc(FB.doc(FB.db, 'vehicles', v.RegistrationNo), { Status: status }));
     this.logAudit(user, status === 'Active' ? 'Activated' : 'Deactivated', 'Vehicle', v.RegistrationNo, `Status set to ${status}`);
-    this.persist();
     return v;
   },
   vehicleHasMovements(regNo){
@@ -169,8 +148,8 @@ const DB = {
     if (this.vehicleHasMovements(regNo)) return false;
     const key = String(regNo).trim().toUpperCase();
     this.vehicles = this.vehicles.filter(v => v.RegistrationNo !== key);
+    this._write(FB.deleteDoc(FB.doc(FB.db, 'vehicles', key)));
     this.logAudit(user, 'Deleted', 'Vehicle', key, 'Vehicle permanently removed (no movement history)');
-    this.persist();
     return true;
   },
 
@@ -199,8 +178,8 @@ const DB = {
       UpdatedAt: '',
     };
     this.movements.unshift(rec);
+    this._write(FB.setDoc(FB.doc(FB.db, 'movements', rec.ID), rec));
     this.logAudit(user, 'Created', 'Movement', rec.ID, `New movement entry created for ${rec.RegistrationNo} on ${rec.Date}`);
-    this.persist();
     return rec;
   },
   updateMovement(id, data, user){
@@ -224,59 +203,48 @@ const DB = {
     if (changes.length){
       m.UpdatedBy = user.Username;
       m.UpdatedAt = new Date().toISOString();
+      this._write(FB.setDoc(FB.doc(FB.db, 'movements', m.ID), { ...m }));
       this.logAudit(user, 'Updated', 'Movement', m.ID, changes.join('; '));
-      this.persist();
     }
     return m;
   },
 
-  /* ---------------- users ---------------- */
+  /* ---------------- users (profiles — credentials live in Firebase Auth) ---------------- */
   findUser(username){
     const key = String(username || '').trim().toLowerCase();
     return this.users.find(u => u.Username.toLowerCase() === key);
   },
-  verifyLogin(username, password){
-    const u = this.findUser(username);
-    if (!u) return null;
-    if (String(u.Active).toLowerCase() === 'no') return null;
-    if (u.Password !== password) return null;
-    return u;
-  },
-  addUser({ Username, DisplayName, Password, Role }, user){
-    const u = { Username: Username.trim(), DisplayName: DisplayName.trim(), Password, Role, Active: 'Yes' };
+  addUserProfile({ Username, DisplayName, Role }, user){
+    const u = { Username: Username.trim().toLowerCase(), DisplayName: DisplayName.trim(), Role, Active: 'Yes' };
     this.users.push(u);
+    this._write(FB.setDoc(FB.doc(FB.db, 'users', u.Username), u));
     this.logAudit(user, 'Created', 'User', u.Username, `User added with role ${u.Role}`);
-    this.persist();
     return u;
   },
   setUserActive(username, active, user){
     const u = this.findUser(username);
     if (!u) return null;
     u.Active = active ? 'Yes' : 'No';
+    this._write(FB.updateDoc(FB.doc(FB.db, 'users', u.Username), { Active: u.Active }));
     this.logAudit(user, active ? 'Activated' : 'Deactivated', 'User', u.Username, `Access ${active ? 'enabled' : 'revoked'}`);
-    this.persist();
     return u;
-  },
-  changePassword(username, newPassword, user){
-    const u = this.findUser(username);
-    if (!u) return false;
-    u.Password = newPassword;
-    this.logAudit(user, 'Updated', 'User', u.Username, 'Password changed');
-    this.persist();
-    return true;
   },
 
   /* ---------------- audit ---------------- */
   logAudit(user, action, recordType, recordId, details){
-    this.auditLog.unshift({
-      ID: this.auditLog.length ? Math.max(...this.auditLog.map(a => Number(a.ID)||0)) + 1 : 1,
+    const entry = {
+      ID: uid('AUD'),
       Timestamp: new Date().toISOString(),
       User: user ? user.Username : 'system',
       Action: action,
       RecordType: recordType,
       RecordId: recordId,
       Details: details,
-    });
+    };
+    this.auditLog.unshift(entry);
+    const write = FB.setDoc(FB.doc(FB.db, 'auditLog', entry.ID), entry);
+    this._write(write);
+    return write.catch(() => {});
   },
   auditForRecord(recordId){
     return this.auditLog.filter(a => a.RecordId === recordId).sort((a,b) => new Date(b.Timestamp) - new Date(a.Timestamp));
@@ -300,10 +268,84 @@ const DB = {
       XLSX.utils.book_append_sheet(wb, ws, name);
     };
     addSheet('Vehicles', this.vehicles, ['RegistrationNo','VehicleType','Status','AddedOn','AddedBy']);
-    addSheet('Users', this.users, ['Username','DisplayName','Password','Role','Active']);
+    // No passwords in backups — credentials live in Firebase Authentication.
+    addSheet('Users', this.users.map(u => ({ Username: u.Username, DisplayName: u.DisplayName, Role: u.Role, Active: u.Active })), ['Username','DisplayName','Role','Active']);
     addSheet('Movements', this.movements, ['ID','Date','RegistrationNo','VehicleType','DriverName','RequestedBy','OpeningTime','OpeningKM','ClosingTime','ClosingKM','TotalKM','PurposePlace','PermittedBy','Remarks','CreatedBy','CreatedAt','UpdatedBy','UpdatedAt']);
     addSheet('AuditLog', this.auditLog, ['ID','Timestamp','User','Action','RecordType','RecordId','Details']);
     XLSX.writeFile(wb, `vehicle-register-backup-${todayISO()}.xlsx`);
+  },
+
+  /* ---------------- bulk replace (import backup / reset) ---------------- */
+  async _commitInChunks(ops){
+    // Firestore batches max out at 500 ops.
+    for (let i = 0; i < ops.length; i += 450){
+      const batch = FB.writeBatch(FB.db);
+      ops.slice(i, i + 450).forEach(op => op(batch));
+      await batch.commit();
+    }
+  },
+
+  async _replaceCollections({ vehicles, movements, auditLog }){
+    const { db, doc, collection, getDocs } = FB;
+    const ops = [];
+    for (const name of ['vehicles', 'movements', 'auditLog']){
+      const snap = await getDocs(collection(db, name));
+      snap.docs.forEach(d => ops.push(b => b.delete(d.ref)));
+    }
+    vehicles.forEach(v => ops.push(b => b.set(doc(db, 'vehicles', v.RegistrationNo), v)));
+    movements.forEach(m => ops.push(b => b.set(doc(db, 'movements', m.ID), m)));
+    auditLog.forEach(a => ops.push(b => b.set(doc(db, 'auditLog', String(a.ID)), a)));
+    await this._commitInChunks(ops);
+  },
+
+  _parseFullWorkbook(wb){
+    const sheet = (name) => wb.Sheets[name] ? XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }) : [];
+    const vehicles = sheet('Vehicles').map(v => ({
+      RegistrationNo: String(v.RegistrationNo || '').trim().toUpperCase(),
+      VehicleType: String(v.VehicleType || '').trim(),
+      Status: v.Status || 'Active',
+      AddedOn: v.AddedOn || todayISO(),
+      AddedBy: v.AddedBy || 'system',
+    })).filter(v => v.RegistrationNo);
+    const movements = sheet('Movements').map(m => ({
+      ID: String(m.ID || uid('MOV')),
+      Date: m.Date || todayISO(),
+      RegistrationNo: String(m.RegistrationNo || '').trim().toUpperCase(),
+      VehicleType: m.VehicleType || '',
+      DriverName: m.DriverName || '',
+      RequestedBy: m.RequestedBy || '',
+      OpeningTime: m.OpeningTime === undefined ? '' : String(m.OpeningTime),
+      OpeningKM: Number(m.OpeningKM || 0),
+      ClosingTime: m.ClosingTime === undefined ? '' : String(m.ClosingTime),
+      ClosingKM: Number(m.ClosingKM || 0),
+      TotalKM: Number(m.TotalKM || (Number(m.ClosingKM||0) - Number(m.OpeningKM||0)) || 0),
+      PurposePlace: m.PurposePlace || '',
+      PermittedBy: m.PermittedBy || '',
+      Remarks: m.Remarks || '',
+      CreatedBy: m.CreatedBy || 'system',
+      CreatedAt: m.CreatedAt || new Date().toISOString(),
+      UpdatedBy: m.UpdatedBy || '',
+      UpdatedAt: m.UpdatedAt || '',
+    }));
+    const auditLog = sheet('AuditLog').map((a, i) => ({
+      ID: String(a.ID || uid('AUD')),
+      Timestamp: a.Timestamp || new Date().toISOString(),
+      User: a.User || 'system',
+      Action: a.Action || 'Created',
+      RecordType: a.RecordType || '',
+      RecordId: a.RecordId || '',
+      Details: a.Details || '',
+    }));
+    return { vehicles, movements, auditLog };
+  },
+
+  async resetToBundled(){
+    const res = await fetch(BASELINE_URL, { cache: 'no-store' });
+    if (!res.ok) throw new Error('Could not load ' + BASELINE_URL);
+    const buf = await res.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    await this._replaceCollections(this._parseFullWorkbook(wb));
+    this.meta.source = 'Cloud Firestore (reset from bundled register)';
   },
 
   /* ---------------- import ---------------- */
@@ -312,17 +354,15 @@ const DB = {
     const wb = XLSX.read(buf, { type: 'array' });
     const sheetNames = wb.SheetNames.map(n => n.toLowerCase());
     if (sheetNames.includes('vehicles') && sheetNames.includes('movements')){
-      this._loadFullWorkbook(wb);
-      this.meta.source = `Imported backup: ${file.name}`;
-      this.meta.loadedAt = new Date().toISOString();
-      this.logAudit(user, 'Updated', 'System', '-', `Full data restored from backup file "${file.name}"`);
-      this.persist();
-      return { mode: 'full', vehicles: this.vehicles.length, movements: this.movements.length };
+      const data = this._parseFullWorkbook(wb);
+      await this._replaceCollections(data);
+      this.logAudit(user, 'Updated', 'System', '-', `Full data restored from backup file "${file.name}" (user accounts unaffected)`);
+      return { mode: 'full', vehicles: data.vehicles.length, movements: data.movements.length };
     }
     return this._importLegacyRegister(wb, file.name, user);
   },
 
-  _importLegacyRegister(wb, fileName, user){
+  async _importLegacyRegister(wb, fileName, user){
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
     if (!rows.length) throw new Error('Empty sheet');
@@ -362,6 +402,7 @@ const DB = {
     if (col.reg === -1) throw new Error('Could not find a "Vehicle Reg. No." column in this file.');
 
     let vehiclesAdded = 0, vehiclesSeen = 0, movementsAdded = 0, movementsSkipped = 0;
+    const ops = [];
     for (let i = headerRowIdx + 1; i < rows.length; i++){
       const r = rows[i];
       const reg = String(r[col.reg] || '').trim().toUpperCase();
@@ -371,7 +412,9 @@ const DB = {
       vehiclesSeen++;
       const type = col.type > -1 ? String(r[col.type] || '').trim() : '';
       if (!this.findVehicle(reg)){
-        this.vehicles.push({ RegistrationNo: reg, VehicleType: type || 'Unspecified', Status: 'Active', AddedOn: todayISO(), AddedBy: user.Username });
+        const v = { RegistrationNo: reg, VehicleType: type || 'Unspecified', Status: 'Active', AddedOn: todayISO(), AddedBy: user.Username };
+        this.vehicles.push(v);
+        ops.push(b => b.set(FB.doc(FB.db, 'vehicles', reg), v));
         vehiclesAdded++;
       }
       const openingKm = col.openKm > -1 ? Number(r[col.openKm] || 0) : 0;
@@ -380,7 +423,7 @@ const DB = {
       if (!openingKm || !closingKm || closingKm <= openingKm){ continue; }
       const dup = this.movements.some(m => m.RegistrationNo === reg && m.Date === dateISO && m.OpeningKM === openingKm && m.ClosingKM === closingKm);
       if (dup){ movementsSkipped++; continue; }
-      this.movements.unshift({
+      const rec = {
         ID: uid('MOV'), Date: dateISO, RegistrationNo: reg, VehicleType: type,
         DriverName: driver, RequestedBy: col.requestedBy > -1 ? String(r[col.requestedBy] || '').trim() : '',
         OpeningTime: col.openTime > -1 ? String(r[col.openTime] || '') : '', OpeningKM: openingKm,
@@ -390,11 +433,13 @@ const DB = {
         PermittedBy: col.permittedBy > -1 ? String(r[col.permittedBy] || '').trim() : '',
         Remarks: col.remarks > -1 ? String(r[col.remarks] || '').trim() : '',
         CreatedBy: user.Username, CreatedAt: new Date().toISOString(), UpdatedBy: '', UpdatedAt: '',
-      });
+      };
+      this.movements.unshift(rec);
+      ops.push(b => b.set(FB.doc(FB.db, 'movements', rec.ID), rec));
       movementsAdded++;
     }
+    await this._commitInChunks(ops);
     this.logAudit(user, 'Created', 'System', '-', `Imported legacy register "${fileName}" (date ${dateISO}): ${vehiclesAdded} new vehicle(s), ${movementsAdded} movement row(s)`);
-    this.persist();
     return { mode: 'legacy', dateISO, vehiclesSeen, vehiclesAdded, movementsAdded, movementsSkipped };
   },
 };

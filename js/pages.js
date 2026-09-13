@@ -704,7 +704,7 @@ function renderSettingsPage(container){
         <div class="section-title" style="margin-top:0">Data Management</div>
         <div class="kv-row"><span class="k">Data Source</span><span class="v">${escapeHtml(DB.meta.source || '—')}</span></div>
         <div class="kv-row"><span class="k">Last Loaded</span><span class="v">${DB.meta.loadedAt ? formatDateTime(DB.meta.loadedAt) : '—'}</span></div>
-        <p class="helper-text">This app has no server: new entries are saved in this browser only. Export a backup regularly and commit it to <code>data/vehicle-register.xlsx</code> in your repo to share updates with other users.</p>
+        <p class="helper-text">Data is stored in Cloud Firestore and shared live with every user. Export a backup regularly for safekeeping. Importing a backup or resetting affects <strong>all users immediately</strong>.</p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
           <button class="btn btn-outline" id="btn-export-backup" type="button">${icon('download')} Export Full Backup (.xlsx)</button>
           <button class="btn btn-outline" id="btn-import" type="button">${icon('upload')} Import Register / Backup</button>
@@ -726,18 +726,26 @@ function renderSettingsPage(container){
     </div>` : ''}
   `;
 
-  $('#pwd-form').addEventListener('submit', (e) => {
+  $('#pwd-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const cur = $('#pw-current').value, nw = $('#pw-new').value, cf = $('#pw-confirm').value;
     const errBox = $('#pw-error');
-    const me = DB.findUser(App.user.Username);
-    if (me.Password !== cur){ errBox.textContent = 'Current password is incorrect.'; errBox.hidden = false; return; }
-    if (nw.length < 4){ errBox.textContent = 'New password must be at least 4 characters.'; errBox.hidden = false; return; }
-    if (nw !== cf){ errBox.textContent = 'New password and confirmation do not match.'; errBox.hidden = false; return; }
-    DB.changePassword(App.user.Username, nw, App.user);
-    errBox.hidden = true;
-    toast('success', 'Password updated');
-    $('#pwd-form').reset();
+    const fail = (msg) => { errBox.textContent = msg; errBox.hidden = false; };
+    if (nw.length < 6){ fail('New password must be at least 6 characters.'); return; }
+    if (nw !== cf){ fail('New password and confirmation do not match.'); return; }
+    try {
+      const cred = FB.EmailAuthProvider.credential(DB.emailFor(App.user.Username), cur);
+      await FB.reauthenticateWithCredential(FB.auth.currentUser, cred);
+      await FB.updatePassword(FB.auth.currentUser, nw);
+      DB.logAudit(App.user, 'Updated', 'User', App.user.Username, 'Password changed');
+      errBox.hidden = true;
+      toast('success', 'Password updated');
+      $('#pwd-form').reset();
+    } catch (err){
+      if (['auth/invalid-credential', 'auth/wrong-password'].includes(err.code)) fail('Current password is incorrect.');
+      else if (err.code === 'auth/weak-password') fail('New password is too weak.');
+      else { fail('Could not update password: ' + (err.message || err.code)); console.error(err); }
+    }
   });
 
   $('#btn-export-backup').addEventListener('click', () => { DB.exportBackupXlsx(); toast('success', 'Backup downloaded'); });
@@ -748,7 +756,7 @@ function renderSettingsPage(container){
     if (!file) return;
     confirmDialog({
       title: 'Import file?',
-      message: `Import <strong>${escapeHtml(file.name)}</strong>? A full backup replaces all data; a daily register sheet adds/merges its vehicles and trips into your current data.`,
+      message: `Import <strong>${escapeHtml(file.name)}</strong>? A full backup replaces all vehicle/movement data <strong>for every user</strong>; a daily register sheet adds/merges its vehicles and trips. User accounts are not affected.`,
       confirmText: 'Import',
       onConfirm: async () => {
         try {
@@ -773,7 +781,7 @@ function renderSettingsPage(container){
   $('#btn-reset').addEventListener('click', () => {
     confirmDialog({
       title: 'Reset all data?', danger: true, confirmText: 'Reset',
-      message: 'This clears everything saved in this browser and reloads the bundled sample register. This cannot be undone.',
+      message: 'This replaces the cloud database with the bundled sample register — <strong>for every user, immediately</strong>. User accounts are kept. This cannot be undone.',
       onConfirm: async () => {
         showLoadingOverlay('Resetting…');
         await DB.resetToBundled();
@@ -815,18 +823,38 @@ function renderSettingsPage(container){
           <div class="field"><label>Role</label><select id="u-role"><option>Operator</option><option>Admin</option></select></div>
           <div id="u-error" class="error-text" hidden></div>`,
         footerHtml: `<button class="btn btn-outline" data-close-modal type="button">Cancel</button><button class="btn btn-primary" id="u-save" type="button">Add User</button>`,
-        onMount: (bd) => $('#u-save', bd).addEventListener('click', () => {
-          const username = $('#u-username', bd).value.trim();
+        onMount: (bd) => $('#u-save', bd).addEventListener('click', async () => {
+          const username = $('#u-username', bd).value.trim().toLowerCase();
           const display = $('#u-display', bd).value.trim();
           const pw = $('#u-password', bd).value;
           const role = $('#u-role', bd).value;
           const err = $('#u-error', bd);
-          if (!username || !display || !pw){ err.textContent = 'All fields are required.'; err.hidden = false; return; }
-          if (DB.findUser(username)){ err.textContent = 'That username is already taken.'; err.hidden = false; return; }
-          DB.addUser({ Username: username, DisplayName: display, Password: pw, Role: role }, App.user);
-          toast('success', 'User added', username);
-          closeModal();
-          renderPage('settings');
+          const fail = (msg) => { err.textContent = msg; err.hidden = false; };
+          if (!username || !display || !pw){ fail('All fields are required.'); return; }
+          if (!/^[a-z0-9._-]+$/.test(username)){ fail('Username can only contain letters, numbers, dots, dashes and underscores.'); return; }
+          if (pw.length < 6){ fail('Password must be at least 6 characters.'); return; }
+          if (DB.findUser(username)){ fail('That username is already taken.'); return; }
+          const btn = $('#u-save', bd);
+          btn.disabled = true;
+          try {
+            // Create the account on a secondary Firebase app instance so the
+            // signed-in admin session is not replaced by the new user.
+            const secondary = FB.getApps().some(a => a.name === 'user-creation')
+              ? FB.getApp('user-creation')
+              : FB.initializeApp(FB.firebaseConfig, 'user-creation');
+            const secondaryAuth = FB.getAuth(secondary);
+            await FB.createUserWithEmailAndPassword(secondaryAuth, DB.emailFor(username), pw);
+            await FB.signOut(secondaryAuth);
+            DB.addUserProfile({ Username: username, DisplayName: display, Role: role }, App.user);
+            toast('success', 'User added', username);
+            closeModal();
+            renderPage('settings');
+          } catch (e2){
+            btn.disabled = false;
+            if (e2.code === 'auth/email-already-in-use') fail('That username is already taken.');
+            else if (e2.code === 'auth/weak-password') fail('Password is too weak (minimum 6 characters).');
+            else { fail('Could not create user: ' + (e2.message || e2.code)); console.error(e2); }
+          }
         }),
       });
     });

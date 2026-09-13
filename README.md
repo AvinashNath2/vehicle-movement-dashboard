@@ -1,8 +1,8 @@
 # Vehicle Movement Dashboard
 
-A static, Excel-backed Daily Vehicle Movement Register & Dashboard, built to
-be hosted for free on **GitHub Pages** — no server, no database, no build
-step.
+A Daily Vehicle Movement Register & Dashboard hosted for free on **GitHub
+Pages**, with data stored in **Cloud Firestore** (Firebase free tier) — no
+server to maintain, no build step, and live multi-user sync.
 
 Live structure mirrors the unit's existing paper/Excel register (`03 BN
 NDRF, MUNDALI — DAILY VEHICLE MOVEMENT REGISTER`): Vehicle Master, daily
@@ -10,8 +10,8 @@ movement entries with auto-calculated Total KM, reports, and an audit trail.
 
 ## 1. Quick start (local preview)
 
-Browsers block `fetch()` on `file://` pages, so don't just double-click
-`index.html`. Serve the folder instead:
+Browsers block ES-module scripts on `file://` pages, so don't just
+double-click `index.html`. Serve the folder instead:
 
 ```bash
 # from inside this folder
@@ -20,6 +20,7 @@ python3 -m http.server 8080
 ```
 
 Any static server works (`npx serve`, VS Code "Live Server", etc.).
+An internet connection is required (Firebase Auth + Firestore).
 
 **Demo credentials:**
 
@@ -28,100 +29,103 @@ Any static server works (`npx serve`, VS Code "Live Server", etc.).
 | `admin` | `admin123` | Admin |
 | `operator` | `operator123` | Operator |
 
-Change these before real use — see [Security notes](#5-security-notes--important).
+Change these before real use: log in → **Settings → Change Password**.
 
-## 2. Deploying to GitHub Pages
+## 2. Architecture
 
-1. Create a new GitHub repository and push this folder's contents to it (the
-   repo root should contain `index.html` directly, or a `/docs` folder — pick
-   whichever matches your Pages source setting).
-2. In the repo: **Settings → Pages → Build and deployment → Source** = "Deploy
-   from a branch", pick your branch and the `/ (root)` folder.
-3. Wait a minute for the first build, then open the URL GitHub gives you
-   (`https://<user>.github.io/<repo>/`).
+```
+GitHub Pages  (serves the static HTML/CSS/JS — free)
+      │
+      ▼
+Browser  ──►  Firebase Authentication  (login: username + password)
+      │
+      └────►  Cloud Firestore          (vehicles / movements / users / auditLog)
+```
 
-No build tools, no `npm install` — every dependency is already vendored in
-`js/vendor/` (see below).
+- **Login** uses Firebase Authentication (Email/Password provider).
+  Usernames are mapped to synthetic emails (`admin` →
+  `admin@vmd-fleet.app`) internally. Passwords are stored only by Firebase —
+  never in Firestore, never in this repo.
+- **Data** lives in four Firestore collections: `vehicles` (doc id =
+  registration no.), `movements` (doc id = entry ID), `users` (profile only:
+  display name, role, active flag) and `auditLog`.
+- **Live sync**: the app uses Firestore snapshot listeners, so an entry
+  added on one device appears on every other signed-in device within
+  seconds. Firestore's offline cache keeps the app readable during brief
+  network drops and syncs writes when the connection returns.
+- **Security rules** (`firestore.rules`): all reads/writes require a
+  signed-in Firebase user. Role gating (Admin vs Operator) is still
+  enforced in the UI only.
+- `data/vehicle-register.xlsx` is no longer the live data store — it is the
+  bundled sample/seed used by **Settings → Reset to Bundled Sample Data**,
+  and the template for the import/export features.
 
-## 3. How the data layer works (read this before relying on it)
+## 3. Firebase setup (already done for this deployment)
 
-GitHub Pages is **static hosting**: there is no server to write an .xlsx
-file back to when someone clicks "Save". This app is built around that
-constraint on purpose:
+For reference, or to point the app at a different Firebase project:
 
-- **`data/vehicle-register.xlsx`** is the shared *baseline* — sample data
-  seeded from your real register, structured as four sheets: `Vehicles`,
-  `Users`, `Movements`, `AuditLog`. It ships in the repo, so it's the same
-  for every visitor on first load.
-- The first time the app runs in a browser, it reads that file and copies it
-  into that browser's **`localStorage`**. From then on, every add/edit
-  (vehicles, movement entries, users, audit entries) is read from and saved
-  straight back to `localStorage` — instantly, no network call.
-- That means **new entries are only visible in the browser/device that
-  created them.** Two people using the site on two computers do not
-  automatically see each other's new trips. This is the direct consequence
-  of "static hosting + shared login" that the brief called out — a real
-  shared multi-user store needs a backend or a serverless database
-  (Firebase, Supabase, a simple Google Sheets API bridge, etc.).
-- **To share updates:** open **Settings → Data Management → Export Full
-  Backup (.xlsx)**, which downloads everything (all four sheets, current
-  state) as one file. Replace `data/vehicle-register.xlsx` in the repo with
-  it and push — the new baseline goes out to everyone the next time they
-  load the site (or hit **Reset to Bundled Sample Data**).
-- **To bring in a fresh daily register** (the same single-sheet format as
-  your original file, with the "Date: dd-Mon-yyyy" title row), use
-  **Settings → Import Register / Backup**. The importer recognizes two
-  shapes automatically:
-  - A **full backup** (has `Vehicles`/`Users`/`Movements`/`AuditLog` sheets)
-    → replaces all data.
-  - A **daily register sheet** (one sheet, title + header row like the
-    original template) → adds any vehicles it doesn't already know about and
-    imports any rows that have both Opening KM and Closing KM filled in,
-    skipping exact duplicates and non-vehicle rows (e.g. the signature line
-    at the bottom of the paper register).
+1. Create a project at console.firebase.google.com (free Spark plan).
+2. **Firestore Database → Create database** (pick a region close to you).
+3. **Authentication → Sign-in method → Email/Password → Enable**.
+4. **Firestore → Rules**: paste `firestore.rules` from this repo → Publish.
+5. Project settings → Your apps → Web app → copy the config object into
+   `js/firebase-init.js` (the config is public — it identifies the project,
+   it does not grant access).
+6. Create the first users + seed data (any Node script using the Firebase
+   web SDK works; accounts can also be added by hand in the Authentication
+   tab as `<username>@vmd-fleet.app`, plus a matching profile document in
+   the `users` collection).
 
-If you outgrow this model (need real concurrent multi-user editing), the
-cleanest next step is swapping `js/db.js`'s `persist()`/`init()` for calls to
-a small backend or a serverless database — the rest of the app (pages,
-forms, validation, exports) doesn't need to change.
+## 4. Deploying to GitHub Pages
 
-## 4. Project structure
+1. Push this folder to a GitHub repository.
+2. **Settings → Pages → Build and deployment → Source** = "Deploy from a
+   branch", pick the branch and `/ (root)`.
+3. Open `https://<user>.github.io/<repo>/`.
+
+The Firebase SDK is loaded from Google's CDN (`gstatic.com`); the other
+libraries (SheetJS, jsPDF) are vendored in `js/vendor/`.
+
+## 5. Data management
+
+- **Export Full Backup (.xlsx)** (Settings): downloads all four collections
+  as one Excel file. Do this regularly — it is your offline backup.
+- **Import Register / Backup** (Settings): a full backup replaces all
+  vehicle/movement data *for every user*; a single-sheet daily register (the
+  original paper format, with the "Date: dd-Mon-yyyy" title row) merges its
+  vehicles and completed rows in. User accounts are never touched by imports.
+- **Reset to Bundled Sample Data** (Settings): replaces the cloud data with
+  `data/vehicle-register.xlsx`. Affects every user immediately.
+
+## 6. Security notes
+
+- Anyone who can sign in can read/write the register (Firestore rules).
+  Keep accounts limited and deactivate users who leave (Settings → User
+  Management).
+- Role gating (Admin vs Operator) is a UI convenience, not a server-side
+  guarantee — a signed-in operator with dev-tools knowledge could bypass it.
+- "Delete" is deliberately restricted: a vehicle with movement history can
+  only be **deactivated**, never deleted, so the audit trail stays intact.
+- Change the default demo passwords before sharing the URL.
+
+## 7. Project structure
 
 ```
 index.html                 Login screen + app shell
 css/styles.css              All styling (responsive, light theme)
+js/firebase-init.js         Firebase SDK bootstrap (config + exports on window.FB)
 js/icons.js                 Small inline SVG icon set
 js/utils.js                 DOM/date/number helpers, toasts, modals, pagination
-js/db.js                    Data layer: load/save, CRUD, audit log, import/export
+js/db.js                    Data layer: Firestore live sync, CRUD, audit, import/export
 js/charts.js                Dependency-free SVG bar chart
 js/pages.js                 Page renderers: Dashboard, Vehicles, Movements, Reports, Audit, Settings
-js/main.js                  Auth, routing, app shell chrome
-js/vendor/                  Vendored libraries (see js/vendor/README.md)
-data/vehicle-register.xlsx  Baseline data (Vehicles / Users / Movements / AuditLog sheets)
+js/main.js                  Auth (Firebase), routing, app shell chrome
+js/vendor/                  Vendored libraries (SheetJS, jsPDF)
+data/vehicle-register.xlsx  Bundled sample/seed data + import/export template
+firestore.rules             Firestore security rules (paste into Firebase console)
 ```
 
-## 5. Security notes — important
-
-This is a client-side-only app, so please set expectations accordingly
-before pointing real people at it:
-
-- **Credentials live in the Excel file / browser storage in plain text.**
-  Anyone who can view the page's network requests or `localStorage` can read
-  them. This is fine for a low-stakes internal tool behind a private
-  GitHub Pages URL or an intranet, but it is **not** equivalent to a real
-  login system. Don't reuse a password anyone cares about.
-- Change the default `admin` / `operator` passwords immediately: log in,
-  go to **Settings → Change Password**, or edit the `Users` sheet in
-  `data/vehicle-register.xlsx` before you first deploy.
-- Role gating (Admin vs Operator) is enforced in the UI, not by a server —
-  someone comfortable with browser dev tools could bypass it. Treat it as a
-  convenience for well-intentioned users, not access control against a
-  determined one.
-- "Delete" is deliberately restricted: a vehicle with movement history can
-  only be **deactivated**, never deleted, so the audit trail always stays
-  intact. Only an unused vehicle can be hard-deleted.
-
-## 6. Customizing
+## 8. Customizing
 
 - **Unit name / report title:** search for `03 BN NDRF, MUNDALI` in
   `js/pages.js` (report export functions) and replace it.
