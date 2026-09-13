@@ -145,7 +145,7 @@ function renderVehiclesPage(container){
         <button class="btn btn-primary" id="btn-add-vehicle" type="button">${icon('plus')} Add Vehicle</button>
       </div>
       <div class="card-pad">
-        <div class="table-wrap"><table class="data-table">
+        <div class="table-wrap cards-sm"><table class="data-table">
           <thead><tr><th>#</th><th>Registration No.</th><th>Vehicle Type</th><th>Status</th><th>Trips</th><th>Actions</th></tr></thead>
           <tbody id="veh-tbody"></tbody>
         </table></div>
@@ -171,11 +171,11 @@ function renderVehiclesPage(container){
       const trips = DB.movements.filter(m => m.RegistrationNo === v.RegistrationNo).length;
       return `
       <tr>
-        <td class="cell-muted">${info.start + i + 1}</td>
-        <td><strong>${escapeHtml(v.RegistrationNo)}</strong></td>
-        <td>${escapeHtml(v.VehicleType)}</td>
-        <td><span class="badge ${v.Status==='Active'?'badge-good':'badge-muted'}">${v.Status}</span></td>
-        <td class="cell-muted tabular">${trips}</td>
+        <td class="cell-muted" data-label="#">${info.start + i + 1}</td>
+        <td data-label="Registration No."><strong>${escapeHtml(v.RegistrationNo)}</strong></td>
+        <td data-label="Type">${escapeHtml(v.VehicleType)}</td>
+        <td data-label="Status"><span class="badge ${v.Status==='Active'?'badge-good':'badge-muted'}">${v.Status}</span></td>
+        <td class="cell-muted tabular" data-label="Trips">${trips}</td>
         <td class="row-actions">
           <button class="icon-btn" data-edit="${v.RegistrationNo}" title="Edit" type="button">${icon('edit')}</button>
           <button class="icon-btn" data-toggle="${v.RegistrationNo}" title="${v.Status==='Active'?'Deactivate':'Activate'}" type="button">${icon(v.Status==='Active'?'x':'check')}</button>
@@ -401,7 +401,7 @@ function renderMovementList(container){
           <div class="field"><label>Vehicle</label><select id="ml-vehicle"><option value="ALL">All Vehicles</option>${vehicleOptionsHtml(f.vehicle==='ALL'?'':f.vehicle)}</select></div>
           <div class="actions"><button class="btn btn-outline" id="ml-clear" type="button">Clear</button></div>
         </div>
-        <div class="table-wrap"><table class="data-table">
+        <div class="table-wrap cards-sm"><table class="data-table">
           <thead><tr><th>Date</th><th>Vehicle</th><th>Driver</th><th>Requested By</th><th>Opening KM</th><th>Closing KM</th><th>Total KM</th><th>Purpose</th><th>Actions</th></tr></thead>
           <tbody id="ml-tbody"></tbody>
         </table></div>
@@ -434,14 +434,14 @@ function renderMovementList(container){
     $('#ml-empty').innerHTML = info.total ? '' : `<div class="empty-state">${icon('doc')}<div>No movement entries match your filters.</div></div>`;
     $('#ml-tbody').innerHTML = info.rows.map(m => `
       <tr>
-        <td class="tabular">${formatDateDMY(m.Date)}</td>
-        <td><strong>${escapeHtml(m.RegistrationNo)}</strong><div class="cell-muted" style="font-size:11.5px">${escapeHtml(m.VehicleType)}</div></td>
-        <td>${escapeHtml(m.DriverName)}</td>
-        <td>${escapeHtml(m.RequestedBy)}</td>
-        <td class="tabular">${formatNumber(m.OpeningKM)}</td>
-        <td class="tabular">${formatNumber(m.ClosingKM)}</td>
-        <td class="tabular"><strong>${formatNumber(m.TotalKM)}</strong></td>
-        <td>${escapeHtml(m.PurposePlace)}</td>
+        <td class="tabular" data-label="Date">${formatDateDMY(m.Date)}</td>
+        <td data-label="Vehicle"><strong>${escapeHtml(m.RegistrationNo)}</strong><div class="cell-muted" style="font-size:11.5px">${escapeHtml(m.VehicleType)}</div></td>
+        <td data-label="Driver">${escapeHtml(m.DriverName)}</td>
+        <td data-label="Requested By">${escapeHtml(m.RequestedBy) || '—'}</td>
+        <td class="tabular" data-label="Opening KM">${formatNumber(m.OpeningKM)}</td>
+        <td class="tabular" data-label="Closing KM">${formatNumber(m.ClosingKM)}</td>
+        <td class="tabular" data-label="Total KM"><strong>${formatNumber(m.TotalKM)}</strong></td>
+        <td data-label="Purpose">${escapeHtml(m.PurposePlace)}</td>
         <td class="row-actions">
           <button class="icon-btn" data-view="${m.ID}" title="View details" type="button">${icon('eye')}</button>
           <button class="icon-btn" data-edit="${m.ID}" title="Edit" type="button">${icon('edit')}</button>
