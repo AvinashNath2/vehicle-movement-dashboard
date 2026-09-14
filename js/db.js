@@ -21,6 +21,12 @@
 const BASELINE_URL = 'data/vehicle-register.xlsx';
 const EMAIL_DOMAIN = 'vmd-fleet.app';
 
+// Older docs/backups predate the Status field — derive it so nothing needs
+// a migration: a recorded closing KM means the trip is finished.
+function normalizeMovement(m){
+  return { ...m, Status: m.Status || (Number(m.ClosingKM) > 0 ? 'Completed' : 'In Progress') };
+}
+
 const DB = {
   vehicles: [],
   users: [],
@@ -62,7 +68,7 @@ const DB = {
     await Promise.all([
       subscribe('vehicles',  rows => this.vehicles  = rows.sort(desc('AddedOn'))),
       subscribe('users',     rows => this.users     = rows),
-      subscribe('movements', rows => this.movements = rows.sort(desc('CreatedAt'))),
+      subscribe('movements', rows => this.movements = rows.map(normalizeMovement).sort(desc('CreatedAt'))),
       subscribe('auditLog',  rows => this.auditLog  = rows.sort(desc('Timestamp'))),
     ]);
     this._ready = true;
@@ -166,9 +172,10 @@ const DB = {
       RequestedBy: (data.RequestedBy || '').trim(),
       OpeningTime: data.OpeningTime || '',
       OpeningKM: Number(data.OpeningKM),
-      ClosingTime: data.ClosingTime || '',
-      ClosingKM: Number(data.ClosingKM),
-      TotalKM: Number(data.ClosingKM) - Number(data.OpeningKM),
+      ClosingTime: '',
+      ClosingKM: 0,
+      TotalKM: 0,
+      Status: 'In Progress',
       PurposePlace: (data.PurposePlace || '').trim(),
       PermittedBy: (data.PermittedBy || '').trim(),
       Remarks: (data.Remarks || '').trim(),
@@ -179,8 +186,29 @@ const DB = {
     };
     this.movements.unshift(rec);
     this._write(FB.setDoc(FB.doc(FB.db, 'movements', rec.ID), rec));
-    this.logAudit(user, 'Created', 'Movement', rec.ID, `New movement entry created for ${rec.RegistrationNo} on ${rec.Date}`);
+    this.logAudit(user, 'Created', 'Movement', rec.ID, `Movement started for ${rec.RegistrationNo} on ${rec.Date}`);
     return rec;
+  },
+  closeMovement(id, { ClosingTime, ClosingKM }, user){
+    const m = this.getMovement(id);
+    if (!m) return null;
+    m.ClosingTime = ClosingTime || '';
+    m.ClosingKM = Number(ClosingKM);
+    m.TotalKM = Number(ClosingKM) - Number(m.OpeningKM);
+    m.Status = 'Completed';
+    m.UpdatedBy = user.Username;
+    m.UpdatedAt = new Date().toISOString();
+    this._write(FB.setDoc(FB.doc(FB.db, 'movements', m.ID), { ...m }));
+    this.logAudit(user, 'Closed', 'Movement', m.ID, `Movement closed for ${m.RegistrationNo} at ${m.ClosingKM} km (total ${m.TotalKM} km)`);
+    return m;
+  },
+  deleteMovement(id, user){
+    const m = this.getMovement(id);
+    if (!m) return false;
+    this.movements = this.movements.filter(x => x.ID !== id);
+    this._write(FB.deleteDoc(FB.doc(FB.db, 'movements', id)));
+    this.logAudit(user, 'Deleted', 'Movement', id, `Entry for ${m.RegistrationNo} on ${m.Date} deleted (created by ${m.CreatedBy})`);
+    return true;
   },
   updateMovement(id, data, user){
     const m = this.getMovement(id);
@@ -197,7 +225,7 @@ const DB = {
         m[f] = nv;
       }
     });
-    m.TotalKM = Number(m.ClosingKM) - Number(m.OpeningKM);
+    m.TotalKM = m.Status === 'Completed' ? Number(m.ClosingKM) - Number(m.OpeningKM) : 0;
     const veh = this.findVehicle(m.RegistrationNo);
     m.VehicleType = veh ? veh.VehicleType : m.VehicleType;
     if (changes.length){
@@ -270,7 +298,7 @@ const DB = {
     addSheet('Vehicles', this.vehicles, ['RegistrationNo','VehicleType','Status','AddedOn','AddedBy']);
     // No passwords in backups — credentials live in Firebase Authentication.
     addSheet('Users', this.users.map(u => ({ Username: u.Username, DisplayName: u.DisplayName, Role: u.Role, Active: u.Active })), ['Username','DisplayName','Role','Active']);
-    addSheet('Movements', this.movements, ['ID','Date','RegistrationNo','VehicleType','DriverName','RequestedBy','OpeningTime','OpeningKM','ClosingTime','ClosingKM','TotalKM','PurposePlace','PermittedBy','Remarks','CreatedBy','CreatedAt','UpdatedBy','UpdatedAt']);
+    addSheet('Movements', this.movements, ['ID','Date','RegistrationNo','VehicleType','DriverName','RequestedBy','OpeningTime','OpeningKM','ClosingTime','ClosingKM','TotalKM','Status','PurposePlace','PermittedBy','Remarks','CreatedBy','CreatedAt','UpdatedBy','UpdatedAt']);
     addSheet('AuditLog', this.auditLog, ['ID','Timestamp','User','Action','RecordType','RecordId','Details']);
     XLSX.writeFile(wb, `vehicle-register-backup-${todayISO()}.xlsx`);
   },
@@ -307,7 +335,7 @@ const DB = {
       AddedOn: v.AddedOn || todayISO(),
       AddedBy: v.AddedBy || 'system',
     })).filter(v => v.RegistrationNo);
-    const movements = sheet('Movements').map(m => ({
+    const movements = sheet('Movements').map(m => normalizeMovement({
       ID: String(m.ID || uid('MOV')),
       Date: m.Date || todayISO(),
       RegistrationNo: String(m.RegistrationNo || '').trim().toUpperCase(),
@@ -319,6 +347,7 @@ const DB = {
       ClosingTime: m.ClosingTime === undefined ? '' : String(m.ClosingTime),
       ClosingKM: Number(m.ClosingKM || 0),
       TotalKM: Number(m.TotalKM || (Number(m.ClosingKM||0) - Number(m.OpeningKM||0)) || 0),
+      Status: m.Status || '',
       PurposePlace: m.PurposePlace || '',
       PermittedBy: m.PermittedBy || '',
       Remarks: m.Remarks || '',
@@ -429,6 +458,7 @@ const DB = {
         OpeningTime: col.openTime > -1 ? String(r[col.openTime] || '') : '', OpeningKM: openingKm,
         ClosingTime: col.closeTime > -1 ? String(r[col.closeTime] || '') : '', ClosingKM: closingKm,
         TotalKM: closingKm - openingKm,
+        Status: 'Completed',
         PurposePlace: col.purpose > -1 ? String(r[col.purpose] || '').trim() : '',
         PermittedBy: col.permittedBy > -1 ? String(r[col.permittedBy] || '').trim() : '',
         Remarks: col.remarks > -1 ? String(r[col.remarks] || '').trim() : '',

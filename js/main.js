@@ -64,6 +64,7 @@ function boot(){
         const u = DB.findUser(username);
         if (u && String(u.Active).toLowerCase() !== 'no'){
           App.user = u;
+          if (!isAdmin()) App.filters.movements.view = 'landing';
           hideLoadingOverlay();
           enterApp();
           return;
@@ -143,6 +144,7 @@ async function handleLogin(e){
     DB.logAudit(u, 'Login', 'User', u.Username, 'User signed in');
     // Fresh sign-in: don't inherit the previous user's page or filters.
     App.filters = makeDefaultFilters();
+    if (!isAdmin()) App.filters.movements.view = 'landing';
     history.replaceState(null, '', '#/' + defaultRoute());
     enterApp();
   } catch (err){

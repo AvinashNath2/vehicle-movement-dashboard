@@ -13,7 +13,7 @@ function vehicleOptionsHtml(selected, { onlyActive } = {}){
 
 function actionBadge(action){
   const map = {
-    Created: 'badge-good', Updated: 'badge-brand', Deactivated: 'badge-critical',
+    Created: 'badge-good', Updated: 'badge-brand', Closed: 'badge-good', Deactivated: 'badge-critical',
     Activated: 'badge-good', Deleted: 'badge-critical', Login: 'badge-muted', Logout: 'badge-muted',
   };
   return `<span class="badge ${map[action] || 'badge-muted'}">${escapeHtml(action)}</span>`;
@@ -251,23 +251,49 @@ function openVehicleModal(existing){
 
 /* ============================== MOVEMENTS ============================== */
 
+function canManageMovement(m){
+  return App.user.Role === 'Admin' || m.CreatedBy === App.user.Username;
+}
+function movementsHomeView(){
+  return App.user.Role === 'Admin' ? 'list' : 'landing';
+}
+function statusBadge(m){
+  return m.Status === 'Completed'
+    ? '<span class="badge badge-good">Completed</span>'
+    : '<span class="badge badge-warning">In Progress</span>';
+}
+function goMovementsHome(){
+  const f = App.filters.movements;
+  f.editingId = null;
+  f.view = movementsHomeView();
+  renderPage('movements');
+}
+
 function renderMovementsPage(container){
   const f = App.filters.movements;
   if (f.view === 'form') renderMovementForm(container);
+  else if (f.view === 'landing') renderOperatorLanding(container);
   else renderMovementList(container);
 }
 
 function renderMovementForm(container){
   const f = App.filters.movements;
-  const editing = f.editingId ? DB.getMovement(f.editingId) : null;
+  let editing = f.editingId ? DB.getMovement(f.editingId) : null;
+  if (editing && !canManageMovement(editing)){
+    toast('error', 'Not allowed', 'You can only edit entries you created.');
+    editing = null;
+    f.editingId = null;
+  }
+  const isCompleted = editing?.Status === 'Completed';
   container.innerHTML = `
     <div class="card">
       <div class="card-head">
         <h2 style="display:flex;align-items:center;gap:10px">
           <button class="icon-btn" id="mv-back" type="button">${icon('chevronLeft')}</button>
-          ${editing ? 'Edit Movement Entry' : 'Movement Entry'}
+          ${editing ? 'Edit Movement Entry' : 'New Movement'}
+          ${editing ? statusBadge(editing) : ''}
         </h2>
-        <button class="btn btn-outline btn-sm" id="mv-view-all" type="button">${icon('list')} View All Entries</button>
+        ${App.user.Role === 'Admin' ? `<button class="btn btn-outline btn-sm" id="mv-view-all" type="button">${icon('list')} View All Entries</button>` : ''}
       </div>
       <div class="card-pad">
         <form id="mv-form">
@@ -283,6 +309,7 @@ function renderMovementForm(container){
             <div class="field"><label>Opening Time</label><input type="text" id="f-otime" value="${editing?.OpeningTime||''}" placeholder="--:--"></div>
             <div class="field"><label>Opening KM *</label><input type="number" min="0" id="f-okm" value="${editing?.OpeningKM ?? ''}" placeholder="0"></div>
           </div>
+          ${isCompleted ? `
           <div class="form-row">
             <div class="field"><label>Closing Time</label><input type="text" id="f-ctime" value="${editing?.ClosingTime||''}" placeholder="--:--"></div>
             <div class="field"><label>Closing KM *</label><input type="number" min="0" id="f-ckm" value="${editing?.ClosingKM ?? ''}" placeholder="0"></div>
@@ -290,13 +317,17 @@ function renderMovementForm(container){
           <div class="total-km-box">
             <div class="ic">${icon('gauge')}</div>
             <div><div class="lbl">Total KM (Auto)</div><div class="num tabular" id="f-total">0 km</div></div>
-          </div>
+          </div>` : `
+          <p class="helper-text" style="margin:0 0 4px">${editing
+            ? 'This movement is still open — use <strong>Close Entry</strong> below to record the closing time and KM when the vehicle returns.'
+            : 'The entry is saved as <strong>In Progress</strong>. Close it from the movements page when the vehicle returns.'}</p>`}
           <div class="field" style="margin-top:14px"><label>Purpose / Place *</label><input type="text" id="f-purpose" value="${escapeHtml(editing?.PurposePlace||'')}" placeholder="Enter purpose or place"></div>
           <div class="field"><label>Permitted By</label><input type="text" id="f-permby" value="${escapeHtml(editing?.PermittedBy||'')}" placeholder="Enter approving authority"></div>
           <div class="field"><label>Remarks</label><textarea id="f-remarks" placeholder="Enter remarks (optional)">${escapeHtml(editing?.Remarks||'')}</textarea></div>
           <div id="f-error" class="error-text" hidden></div>
           ${editing ? `<div class="section-title">Audit History</div><div id="f-history"></div>` : ''}
           <div class="modal-foot" style="padding:16px 0 0;border-top:1px solid var(--border);margin-top:18px">
+            ${editing && !isCompleted ? `<button class="btn btn-outline" id="f-close-entry" type="button" style="margin-right:auto;border-color:var(--good);color:var(--good)">${icon('check')} Close Entry</button>` : ''}
             <button class="btn btn-outline" id="f-cancel" type="button">Cancel</button>
             <button class="btn btn-primary" id="f-save" type="submit">${editing ? 'Update Entry' : 'Save Entry'}</button>
           </div>
@@ -312,21 +343,21 @@ function renderMovementForm(container){
       : `<div class="helper-text">No history yet.</div>`;
   }
 
-  const recalc = () => {
-    const ok = Number($('#f-okm').value || 0), ck = Number($('#f-ckm').value || 0);
-    const total = ck - ok;
-    $('#f-total').textContent = fmtKm(total > 0 ? total : 0);
-  };
-  $('#f-okm').addEventListener('input', recalc);
-  $('#f-ckm').addEventListener('input', recalc);
-  recalc();
+  if (isCompleted){
+    const recalc = () => {
+      const ok = Number($('#f-okm').value || 0), ck = Number($('#f-ckm').value || 0);
+      const total = ck - ok;
+      $('#f-total').textContent = fmtKm(total > 0 ? total : 0);
+    };
+    $('#f-okm').addEventListener('input', recalc);
+    $('#f-ckm').addEventListener('input', recalc);
+    recalc();
+  }
 
-  $('#mv-back').addEventListener('click', () => { f.editingId = null; f.view = 'list'; renderPage('movements'); });
-  $('#mv-view-all').addEventListener('click', () => { f.editingId = null; f.view = 'list'; renderPage('movements'); });
-  $('#f-cancel').addEventListener('click', () => {
-    if (editing){ f.editingId = null; f.view = 'list'; renderPage('movements'); }
-    else { f.editingId = null; renderPage('movements'); }
-  });
+  $('#mv-back').addEventListener('click', goMovementsHome);
+  $('#mv-view-all')?.addEventListener('click', goMovementsHome);
+  $('#f-cancel').addEventListener('click', goMovementsHome);
+  $('#f-close-entry')?.addEventListener('click', () => openCloseMovementModal(editing.ID));
 
   $('#mv-form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -340,13 +371,15 @@ function renderMovementForm(container){
       DriverName: $('#f-driver').value.trim(),
       RequestedBy: $('#f-reqby').value.trim(),
       OpeningTime: $('#f-otime').value.trim(),
-      ClosingTime: $('#f-ctime').value.trim(),
       OpeningKM: $('#f-okm').value,
-      ClosingKM: $('#f-ckm').value,
       PurposePlace: $('#f-purpose').value.trim(),
       PermittedBy: $('#f-permby').value.trim(),
       Remarks: $('#f-remarks').value.trim(),
     };
+    if (isCompleted){
+      data.ClosingTime = $('#f-ctime').value.trim();
+      data.ClosingKM = $('#f-ckm').value;
+    }
 
     const missing = [];
     if (!data.Date) missing.push('#f-date');
@@ -354,10 +387,11 @@ function renderMovementForm(container){
     if (!data.DriverName) missing.push('#f-driver');
     if (!data.PurposePlace) missing.push('#f-purpose');
     if (data.OpeningKM === '' || isNaN(Number(data.OpeningKM))) missing.push('#f-okm');
-    if (data.ClosingKM === '' || isNaN(Number(data.ClosingKM))) missing.push('#f-ckm');
-
     if (data.OpeningTime && normalizeTime(data.OpeningTime) === null) missing.push('#f-otime');
-    if (data.ClosingTime && normalizeTime(data.ClosingTime) === null) missing.push('#f-ctime');
+    if (isCompleted){
+      if (data.ClosingKM === '' || isNaN(Number(data.ClosingKM))) missing.push('#f-ckm');
+      if (data.ClosingTime && normalizeTime(data.ClosingTime) === null) missing.push('#f-ctime');
+    }
 
     if (missing.length){
       missing.forEach(sel => $(sel).classList.add('invalid'));
@@ -365,7 +399,7 @@ function renderMovementForm(container){
       errBox.hidden = false;
       return;
     }
-    if (Number(data.ClosingKM) < Number(data.OpeningKM)){
+    if (isCompleted && Number(data.ClosingKM) < Number(data.OpeningKM)){
       $('#f-ckm').classList.add('invalid');
       errBox.textContent = 'Closing KM cannot be less than Opening KM.';
       errBox.hidden = false;
@@ -375,14 +409,162 @@ function renderMovementForm(container){
     if (editing){
       DB.updateMovement(editing.ID, data, App.user);
       toast('success', 'Entry updated', `${data.RegistrationNo} on ${formatDateDMY(data.Date)}`);
-      f.editingId = null; f.view = 'list';
-      renderPage('movements');
+      goMovementsHome();
     } else {
       DB.addMovement(data, App.user);
-      toast('success', 'Entry saved', `${data.RegistrationNo} on ${formatDateDMY(data.Date)}`);
-      renderPage('movements'); // fresh form, ready for another trip
+      toast('success', 'Movement started', `${data.RegistrationNo} on ${formatDateDMY(data.Date)} — close it when the vehicle returns`);
+      if (App.user.Role === 'Admin') renderPage('movements'); // fresh form, ready for another trip
+      else goMovementsHome(); // operators see it appear under Open Movements
     }
   });
+}
+
+function openCloseMovementModal(id){
+  const m = DB.getMovement(id);
+  if (!m || m.Status === 'Completed' || !canManageMovement(m)) return;
+  const backdrop = openModal({
+    title: 'Close Movement Entry',
+    bodyHtml: `
+      <div class="kv-row"><span class="k">Vehicle</span><span class="v">${escapeHtml(m.RegistrationNo)} (${escapeHtml(m.VehicleType)})</span></div>
+      <div class="kv-row"><span class="k">Date · Driver</span><span class="v">${formatDateDMY(m.Date)} · ${escapeHtml(m.DriverName)}</span></div>
+      <div class="kv-row"><span class="k">Opening</span><span class="v">${formatTime(m.OpeningTime)} · ${formatNumber(m.OpeningKM)} km</span></div>
+      <div class="form-row" style="margin-top:16px">
+        <div class="field"><label>Closing Time</label><input type="text" id="c-time" placeholder="--:--"></div>
+        <div class="field"><label>Closing KM *</label><input type="number" min="0" id="c-km" placeholder="${m.OpeningKM}"></div>
+      </div>
+      <div class="total-km-box">
+        <div class="ic">${icon('gauge')}</div>
+        <div><div class="lbl">Total KM (Auto)</div><div class="num tabular" id="c-total">0 km</div></div>
+      </div>
+      <div id="c-error" class="error-text" hidden style="margin-top:10px"></div>`,
+    footerHtml: `<button class="btn btn-outline" data-close-modal type="button">Cancel</button>
+      <button class="btn btn-primary" id="c-save" type="button">${icon('check')} Close Entry</button>`,
+  });
+  $('#c-km', backdrop).addEventListener('input', () => {
+    const t = Number($('#c-km', backdrop).value || 0) - Number(m.OpeningKM);
+    $('#c-total', backdrop).textContent = fmtKm(t > 0 ? t : 0);
+  });
+  $('#c-km', backdrop).focus();
+  $('#c-save', backdrop).addEventListener('click', () => {
+    const err = $('#c-error', backdrop);
+    const time = $('#c-time', backdrop).value.trim();
+    const km = $('#c-km', backdrop).value;
+    const fail = (msg) => { err.textContent = msg; err.hidden = false; };
+    if (km === '' || isNaN(Number(km))){ fail('Closing KM is required.'); return; }
+    if (Number(km) < Number(m.OpeningKM)){ fail('Closing KM cannot be less than Opening KM.'); return; }
+    if (time && normalizeTime(time) === null){ fail('Closing time must be a valid time, e.g. 1430 or 14:30.'); return; }
+    DB.closeMovement(m.ID, { ClosingTime: time, ClosingKM: Number(km) }, App.user);
+    closeModal();
+    toast('success', 'Movement closed', `${m.RegistrationNo} · ${fmtKm(Number(km) - Number(m.OpeningKM))}`);
+    goMovementsHome();
+  });
+}
+
+function confirmDeleteMovement(m, onDone){
+  confirmDialog({
+    title: 'Delete movement entry?', danger: true, confirmText: 'Delete',
+    message: `Permanently delete the entry for <strong>${escapeHtml(m.RegistrationNo)}</strong> on ${formatDateDMY(m.Date)}${m.CreatedBy !== App.user.Username ? ` (created by <strong>${escapeHtml(m.CreatedBy)}</strong>)` : ''}? This cannot be undone and will be recorded in the audit log.`,
+    onConfirm: () => {
+      DB.deleteMovement(m.ID, App.user);
+      toast('success', 'Entry deleted', `${m.RegistrationNo} on ${formatDateDMY(m.Date)}`);
+      onDone();
+    },
+  });
+}
+
+/* Operator home: their open trips up top, their full history below. */
+function renderOperatorLanding(container){
+  const f = App.filters.movements;
+  const mine = DB.movements.filter(m => m.CreatedBy === App.user.Username);
+  const open = mine.filter(m => m.Status !== 'Completed')
+    .sort((a, b) => String(b.CreatedAt).localeCompare(String(a.CreatedAt)));
+
+  container.innerHTML = `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head">
+        <h2 style="display:flex;align-items:center;gap:8px">Open Movements
+          ${open.length ? `<span class="badge badge-warning">${open.length}</span>` : ''}</h2>
+        <button class="btn btn-primary btn-sm" id="mv-new" type="button">${icon('plus')} New Entry</button>
+      </div>
+      <div class="card-pad" id="open-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>My Entries</h2></div>
+      <div class="card-pad">
+        <div class="filter-bar">
+          <div class="field grow"><label>Search</label><div class="input-icon">${icon('search')}<input type="search" id="ml-search" placeholder="Driver, vehicle, purpose…" value="${escapeHtml(f.search)}"></div></div>
+          <div class="field"><label>From Date</label><input type="date" id="ml-from" value="${f.from}"></div>
+          <div class="field"><label>To Date</label><input type="date" id="ml-to" value="${f.to}"></div>
+          <div class="actions"><button class="btn btn-outline" id="ml-clear" type="button">Clear</button></div>
+        </div>
+        <div class="table-wrap cards-sm"><table class="data-table">
+          <thead><tr><th>Date</th><th>Vehicle</th><th>Driver</th><th>Status</th><th>Total KM</th><th>Actions</th></tr></thead>
+          <tbody id="ml-tbody"></tbody>
+        </table></div>
+        <div id="ml-empty"></div>
+        <div id="ml-pagination"></div>
+      </div>
+    </div>`;
+
+  $('#open-list').innerHTML = open.length ? open.map(m => `
+    <div class="open-mv-row">
+      <div>
+        <div><strong>${escapeHtml(m.RegistrationNo)}</strong> <span class="cell-muted">${escapeHtml(m.VehicleType)}</span></div>
+        <div class="meta">${formatDateDMY(m.Date)} · out ${formatTime(m.OpeningTime)} at ${formatNumber(m.OpeningKM)} km · ${escapeHtml(m.DriverName)}</div>
+      </div>
+      <div class="acts">
+        <button class="btn btn-primary btn-sm" data-close="${m.ID}" type="button">${icon('check')} Close</button>
+        <button class="icon-btn" data-edit="${m.ID}" title="Edit" type="button">${icon('edit')}</button>
+        <button class="icon-btn danger" data-del="${m.ID}" title="Delete" type="button">${icon('trash')}</button>
+      </div>
+    </div>`).join('')
+    : `<div class="empty-state" style="padding:24px 16px">${icon('car')}<div>No open movements. Tap <strong>New Entry</strong> when a vehicle goes out.</div></div>`;
+
+  $('#mv-new').addEventListener('click', () => { f.editingId = null; f.view = 'form'; renderPage('movements'); });
+  $('#ml-search').addEventListener('input', debounce(() => { f.search = $('#ml-search').value; f.page = 1; renderTable(); }, 200));
+  $('#ml-from').addEventListener('change', () => { f.from = $('#ml-from').value; f.page = 1; renderTable(); });
+  $('#ml-to').addEventListener('change', () => { f.to = $('#ml-to').value; f.page = 1; renderTable(); });
+  $('#ml-clear').addEventListener('click', () => { Object.assign(f, { search:'', from:'', to:'', page:1 }); renderPage('movements'); });
+
+  const wireRowActions = (root, refresh) => {
+    $$('[data-close]', root).forEach(b => b.addEventListener('click', () => openCloseMovementModal(b.dataset.close)));
+    $$('[data-edit]', root).forEach(b => b.addEventListener('click', () => { f.editingId = b.dataset.edit; f.view = 'form'; renderPage('movements'); }));
+    $$('[data-del]', root).forEach(b => b.addEventListener('click', () => confirmDeleteMovement(DB.getMovement(b.dataset.del), refresh)));
+    $$('[data-view]', root).forEach(b => b.addEventListener('click', () => openMovementDetailModal(b.dataset.view)));
+  };
+  wireRowActions($('#open-list'), () => renderPage('movements'));
+
+  function renderTable(){
+    const q = f.search.trim().toLowerCase();
+    const rows = mine.filter(m => {
+      if (f.from && m.Date < f.from) return false;
+      if (f.to && m.Date > f.to) return false;
+      if (q && !(`${m.DriverName} ${m.PurposePlace} ${m.RegistrationNo}`.toLowerCase().includes(q))) return false;
+      return true;
+    }).sort((a, b) => b.Date.localeCompare(a.Date) || String(b.CreatedAt).localeCompare(String(a.CreatedAt)));
+
+    const info = paginate(rows, f.page, 8);
+    $('#ml-empty').innerHTML = info.total ? '' : `<div class="empty-state">${icon('doc')}<div>No entries match your filters.</div></div>`;
+    $('#ml-tbody').innerHTML = info.rows.map(m => `
+      <tr>
+        <td class="tabular" data-label="Date">${formatDateDMY(m.Date)}</td>
+        <td data-label="Vehicle"><strong>${escapeHtml(m.RegistrationNo)}</strong><div class="cell-muted" style="font-size:11.5px">${escapeHtml(m.VehicleType)}</div></td>
+        <td data-label="Driver">${escapeHtml(m.DriverName)}</td>
+        <td data-label="Status">${statusBadge(m)}</td>
+        <td class="tabular" data-label="Total KM"><strong>${m.Status === 'Completed' ? formatNumber(m.TotalKM) : '—'}</strong></td>
+        <td class="row-actions">
+          <button class="icon-btn" data-view="${m.ID}" title="View details" type="button">${icon('eye')}</button>
+          ${m.Status !== 'Completed' ? `<button class="icon-btn" data-close="${m.ID}" title="Close" type="button">${icon('check')}</button>` : ''}
+          <button class="icon-btn" data-edit="${m.ID}" title="Edit" type="button">${icon('edit')}</button>
+          <button class="icon-btn danger" data-del="${m.ID}" title="Delete" type="button">${icon('trash')}</button>
+        </td>
+      </tr>`).join('');
+    $('#ml-pagination').innerHTML = paginationHtml(info);
+    wirePagination($('#ml-pagination'), (p) => { f.page = p; renderTable(); });
+    wireRowActions($('#ml-tbody'), () => renderPage('movements'));
+  }
+  renderTable();
 }
 
 function renderMovementList(container){
@@ -402,7 +584,7 @@ function renderMovementList(container){
           <div class="actions"><button class="btn btn-outline" id="ml-clear" type="button">Clear</button></div>
         </div>
         <div class="table-wrap cards-sm"><table class="data-table">
-          <thead><tr><th>Date</th><th>Vehicle</th><th>Driver</th><th>Requested By</th><th>Opening KM</th><th>Closing KM</th><th>Total KM</th><th>Purpose</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Date</th><th>Vehicle</th><th>Driver</th><th>Requested By</th><th>Opening KM</th><th>Closing KM</th><th>Total KM</th><th>Status</th><th>Purpose</th><th>Actions</th></tr></thead>
           <tbody id="ml-tbody"></tbody>
         </table></div>
         <div id="ml-empty"></div>
@@ -439,12 +621,15 @@ function renderMovementList(container){
         <td data-label="Driver">${escapeHtml(m.DriverName)}</td>
         <td data-label="Requested By">${escapeHtml(m.RequestedBy) || '—'}</td>
         <td class="tabular" data-label="Opening KM">${formatNumber(m.OpeningKM)}</td>
-        <td class="tabular" data-label="Closing KM">${formatNumber(m.ClosingKM)}</td>
-        <td class="tabular" data-label="Total KM"><strong>${formatNumber(m.TotalKM)}</strong></td>
+        <td class="tabular" data-label="Closing KM">${m.Status === 'Completed' ? formatNumber(m.ClosingKM) : '—'}</td>
+        <td class="tabular" data-label="Total KM"><strong>${m.Status === 'Completed' ? formatNumber(m.TotalKM) : '—'}</strong></td>
+        <td data-label="Status">${statusBadge(m)}</td>
         <td data-label="Purpose">${escapeHtml(m.PurposePlace)}</td>
         <td class="row-actions">
           <button class="icon-btn" data-view="${m.ID}" title="View details" type="button">${icon('eye')}</button>
+          ${m.Status !== 'Completed' ? `<button class="icon-btn" data-close="${m.ID}" title="Close" type="button">${icon('check')}</button>` : ''}
           <button class="icon-btn" data-edit="${m.ID}" title="Edit" type="button">${icon('edit')}</button>
+          <button class="icon-btn danger" data-del="${m.ID}" title="Delete" type="button">${icon('trash')}</button>
         </td>
       </tr>`).join('');
     $('#ml-pagination').innerHTML = paginationHtml(info);
@@ -454,6 +639,8 @@ function renderMovementList(container){
       f.editingId = b.dataset.edit; f.view = 'form'; renderPage('movements');
     }));
     $$('#ml-tbody [data-view]').forEach(b => b.addEventListener('click', () => openMovementDetailModal(b.dataset.view)));
+    $$('#ml-tbody [data-close]').forEach(b => b.addEventListener('click', () => openCloseMovementModal(b.dataset.close)));
+    $$('#ml-tbody [data-del]').forEach(b => b.addEventListener('click', () => confirmDeleteMovement(DB.getMovement(b.dataset.del), renderTable)));
   }
   renderTable();
 }
@@ -473,9 +660,10 @@ function openMovementDetailModal(id){
           <div class="kv-row"><span class="k">Driver</span><span class="v">${escapeHtml(m.DriverName)}</span></div>
           <div class="kv-row"><span class="k">Requested By</span><span class="v">${escapeHtml(m.RequestedBy)||'—'}</span></div>
           <div class="kv-row"><span class="k">Permitted By</span><span class="v">${escapeHtml(m.PermittedBy)||'—'}</span></div>
+          <div class="kv-row"><span class="k">Status</span><span class="v">${statusBadge(m)}</span></div>
           <div class="kv-row"><span class="k">Opening</span><span class="v">${formatTime(m.OpeningTime)} · ${formatNumber(m.OpeningKM)} km</span></div>
-          <div class="kv-row"><span class="k">Closing</span><span class="v">${formatTime(m.ClosingTime)} · ${formatNumber(m.ClosingKM)} km</span></div>
-          <div class="kv-row"><span class="k">Total KM</span><span class="v"><strong>${fmtKm(m.TotalKM)}</strong></span></div>
+          <div class="kv-row"><span class="k">Closing</span><span class="v">${m.Status === 'Completed' ? `${formatTime(m.ClosingTime)} · ${formatNumber(m.ClosingKM)} km` : '— still open'}</span></div>
+          <div class="kv-row"><span class="k">Total KM</span><span class="v"><strong>${m.Status === 'Completed' ? fmtKm(m.TotalKM) : '—'}</strong></span></div>
           <div class="kv-row"><span class="k">Purpose / Place</span><span class="v">${escapeHtml(m.PurposePlace)}</span></div>
           <div class="kv-row"><span class="k">Remarks</span><span class="v">${escapeHtml(m.Remarks)||'—'}</span></div>
           <div class="kv-row"><span class="k">Created</span><span class="v">${escapeHtml(m.CreatedBy)} · ${formatDateTime(m.CreatedAt)}</span></div>
@@ -487,8 +675,8 @@ function openMovementDetailModal(id){
         </div>
       </div>`,
     footerHtml: `<button class="btn btn-outline" data-close-modal type="button">Close</button>
-      <button class="btn btn-primary" id="detail-edit" type="button">${icon('edit')} Edit Entry</button>`,
-    onMount: (bd) => $('#detail-edit', bd).addEventListener('click', () => {
+      ${canManageMovement(m) ? `<button class="btn btn-primary" id="detail-edit" type="button">${icon('edit')} Edit Entry</button>` : ''}`,
+    onMount: (bd) => $('#detail-edit', bd)?.addEventListener('click', () => {
       closeModal();
       App.filters.movements.editingId = id;
       App.filters.movements.view = 'form';
@@ -549,7 +737,7 @@ function renderReportsPage(container){
           generated by ${escapeHtml(App.user.DisplayName)} on ${formatDateTime(new Date().toISOString())}
         </div>
         <div class="table-wrap"><table class="data-table">
-          <thead><tr><th>Date</th><th>Vehicle</th><th>Type</th><th>Driver</th><th>Requested By</th><th>Opening KM</th><th>Closing KM</th><th>Total KM</th><th>Purpose</th><th>Permitted By</th></tr></thead>
+          <thead><tr><th>Date</th><th>Vehicle</th><th>Type</th><th>Driver</th><th>Requested By</th><th>Opening KM</th><th>Closing KM</th><th>Total KM</th><th>Status</th><th>Purpose</th><th>Permitted By</th></tr></thead>
           <tbody>
             ${rows.map(m => `<tr>
               <td class="tabular">${formatDateDMY(m.Date)}</td>
@@ -558,13 +746,14 @@ function renderReportsPage(container){
               <td>${escapeHtml(m.DriverName)}</td>
               <td>${escapeHtml(m.RequestedBy)}</td>
               <td class="tabular">${formatNumber(m.OpeningKM)}</td>
-              <td class="tabular">${formatNumber(m.ClosingKM)}</td>
-              <td class="tabular">${formatNumber(m.TotalKM)}</td>
+              <td class="tabular">${m.Status === 'Completed' ? formatNumber(m.ClosingKM) : '—'}</td>
+              <td class="tabular">${m.Status === 'Completed' ? formatNumber(m.TotalKM) : '—'}</td>
+              <td>${statusBadge(m)}</td>
               <td>${escapeHtml(m.PurposePlace)}</td>
               <td>${escapeHtml(m.PermittedBy)}</td>
             </tr>`).join('')}
           </tbody>
-          <tfoot><tr><td colspan="7">Total</td><td class="tabular">${formatNumber(totalKm)}</td><td colspan="2"></td></tr></tfoot>
+          <tfoot><tr><td colspan="7">Total</td><td class="tabular">${formatNumber(totalKm)}</td><td colspan="3"></td></tr></tfoot>
         </table></div>`;
   }
 
@@ -588,13 +777,13 @@ function exportReportXlsx(f, rows){
     [`Vehicle: ${f.vehicle === 'ALL' ? 'All Vehicles' : f.vehicle}`],
     [`Generated by: ${App.user.DisplayName} on ${formatDateTime(new Date().toISOString())}`],
     [],
-    ['Date','Vehicle','Type','Driver','Requested By','Opening KM','Closing KM','Total KM','Purpose / Place','Permitted By'],
-    ...rows.map(m => [formatDateDMY(m.Date), m.RegistrationNo, m.VehicleType, m.DriverName, m.RequestedBy, m.OpeningKM, m.ClosingKM, m.TotalKM, m.PurposePlace, m.PermittedBy]),
+    ['Date','Vehicle','Type','Driver','Requested By','Opening KM','Closing KM','Total KM','Status','Purpose / Place','Permitted By'],
+    ...rows.map(m => [formatDateDMY(m.Date), m.RegistrationNo, m.VehicleType, m.DriverName, m.RequestedBy, m.OpeningKM, m.ClosingKM, m.TotalKM, m.Status, m.PurposePlace, m.PermittedBy]),
     [],
-    ['', '', '', '', '', '', 'Total', totalKm, '', ''],
+    ['', '', '', '', '', '', 'Total', totalKm, '', '', ''],
   ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:12},{wch:14},{wch:12},{wch:16},{wch:16},{wch:11},{wch:11},{wch:10},{wch:24},{wch:14}];
+  ws['!cols'] = [{wch:12},{wch:14},{wch:12},{wch:16},{wch:16},{wch:11},{wch:11},{wch:10},{wch:12},{wch:24},{wch:14}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Report');
   XLSX.writeFile(wb, `Vehicle_Movement_Report_${f.from}_to_${f.to}.xlsx`);
@@ -612,9 +801,9 @@ function exportReportPdf(f, rows){
   doc.text(`Generated by ${App.user.DisplayName} on ${formatDateTime(new Date().toISOString())}`, 14, 27);
   doc.autoTable({
     startY: 33,
-    head: [['Date','Vehicle','Type','Driver','Requested By','Opening KM','Closing KM','Total KM','Purpose / Place','Permitted By']],
-    body: rows.map(m => [formatDateDMY(m.Date), m.RegistrationNo, m.VehicleType, m.DriverName, m.RequestedBy, formatNumber(m.OpeningKM), formatNumber(m.ClosingKM), formatNumber(m.TotalKM), m.PurposePlace, m.PermittedBy]),
-    foot: [['', '', '', '', '', '', 'Total', formatNumber(totalKm), '', '']],
+    head: [['Date','Vehicle','Type','Driver','Requested By','Opening KM','Closing KM','Total KM','Status','Purpose / Place','Permitted By']],
+    body: rows.map(m => [formatDateDMY(m.Date), m.RegistrationNo, m.VehicleType, m.DriverName, m.RequestedBy, formatNumber(m.OpeningKM), formatNumber(m.ClosingKM), formatNumber(m.TotalKM), m.Status, m.PurposePlace, m.PermittedBy]),
+    foot: [['', '', '', '', '', '', 'Total', formatNumber(totalKm), '', '', '']],
     styles: { fontSize: 8.5 },
     headStyles: { fillColor: [42,120,214] },
     footStyles: { fillColor: [238,242,251], textColor: [20,24,31] },

@@ -34,10 +34,21 @@ Change these before real use: log in → **Settings → Change Password**.
 **Roles:**
 
 - **Admin** — everything: Dashboard, Vehicles, Movement Entries, Reports,
-  Audit Log, Settings (incl. data management and user management).
-- **Operator** — Movement Entries only (record/edit daily trips), plus
-  changing their own password via the avatar menu. All other routes
-  redirect back to Movement Entries.
+  Audit Log, Settings (incl. data management and user management). Admins
+  can edit, close and delete **any** movement entry.
+- **Operator** — Movement Entries only: a landing page with their open
+  movements and their own entry history. Operators can start, edit, close
+  and delete **only entries they created**, plus change their own password
+  via the avatar menu. All other routes redirect back to Movement Entries.
+
+**Movement lifecycle:**
+
+Every entry starts as **In Progress** when the vehicle goes out — only the
+opening details are recorded. When the vehicle returns, the **Close** action
+captures Closing Time/KM and marks it **Completed** (Total KM is computed
+then). Open entries count as trips but contribute 0 km to totals. Every
+create/close/edit/delete is written to the audit log; deletions record who
+originally created the entry.
 
 ## 2. Architecture
 
@@ -107,7 +118,7 @@ libraries (SheetJS, jsPDF) are vendored in `js/vendor/`.
 
 ## 6. Tests
 
-`tests/e2e.js` is a comprehensive end-to-end suite (31 tests) that drives
+`tests/e2e.js` is a comprehensive end-to-end suite (38 tests) that drives
 the real app in headless Chrome against the real Firebase backend: auth
 flows, role gating for both roles, vehicle/movement CRUD and validation,
 reports, the audit trail, settings guards, and live sync across two

@@ -261,6 +261,19 @@ table.data-table{ width:100%; border-collapse:collapse; min-width:640px; }
 .badge-muted{ background:#eef1f7; color:var(--text-secondary); }
 .badge-brand{ background:var(--brand-bg); color:var(--brand); }
 .badge-critical{ background:var(--critical-bg); color:var(--critical); }
+.badge-warning{ background:var(--warning-bg); color:var(--warning); }
+
+/* operator landing: open movement rows */
+.open-mv-row{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:13px 0; border-bottom:1px solid var(--border); flex-wrap:wrap;
+}
+.open-mv-row:last-child{ border-bottom:none; }
+.open-mv-row .meta{ font-size:12.5px; color:var(--text-muted); margin-top:3px; }
+.open-mv-row .acts{ display:flex; gap:6px; align-items:center; }
+@media (max-width:640px){
+  .open-mv-row .acts{ width:100%; justify-content:flex-end; }
+}
 
 .empty-state{ text-align:center; padding:48px 20px; color:var(--text-muted); }
 .empty-state svg{ width:40px; height:40px; margin-bottom:10px; opacity:.6; }

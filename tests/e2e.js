@@ -42,6 +42,9 @@ async function waitFor(page, fn, arg, timeout = 8000, step = 200){
 
 const text = (page, sel) => page.evaluate(s => document.querySelector(s)?.textContent ?? null, sel);
 const exists = (page, sel) => page.evaluate(s => !!document.querySelector(s), sel);
+// Synthetic click: headless Chrome intermittently stops delivering trusted
+// clicks to specific elements mid-suite; element.click() is deterministic.
+const domClick = (page, sel) => page.evaluate(s => document.querySelector(s).click(), sel);
 async function clearType(page, sel, value){
   const found = await page.evaluate(s => {
     const el = document.querySelector(s);
@@ -205,63 +208,86 @@ async function confirmDialogOk(page){
     await sleep(400);
   });
 
-  /* ----------------------------- MOVEMENTS --------------------------- */
-  console.log('MOVEMENTS');
+  /* ----------------------- MOVEMENTS (LIFECYCLE) ---------------------- */
+  console.log('MOVEMENTS (lifecycle)');
   await goRoute(page, 'movements');
+  await test('create form has no closing fields (entries always start In Progress)', async () => {
+    expect(!(await exists(page, '#f-ckm')) && !(await exists(page, '#f-ctime')), 'closing fields present on create form');
+  });
   await test('empty movement form rejected with highlights', async () => {
-    await page.click('#f-save');
+    await domClick(page, '#f-save');
     await sleep(300);
     expect(!(await page.evaluate(() => document.getElementById('f-error').hidden)), 'no validation error');
     expect(await exists(page, '#mv-form .invalid'), 'missing fields not highlighted');
   });
-  await test('closing KM below opening KM rejected', async () => {
+  await test('invalid opening time rejected', async () => {
     await page.select('#f-vehicle', V1);
+    const picked = await page.evaluate(() => document.getElementById('f-vehicle').value);
+    const v1State = await page.evaluate((r) => DB.findVehicle(r)?.Status, V1);
+    expect(picked === V1, `vehicle not selectable (value="${picked}", ${V1} status=${v1State})`);
     await clearType(page, '#f-driver', 'E2E Driver');
     await clearType(page, '#f-okm', '200');
-    await clearType(page, '#f-ckm', '150');
     await clearType(page, '#f-purpose', 'E2E Suite');
-    await page.click('#f-save');
-    await sleep(300);
-    expect((await text(page, '#f-error')).includes('cannot be less than'), 'no closing<opening error');
-  });
-  await test('invalid time format rejected', async () => {
-    await clearType(page, '#f-ckm', '225');
     await clearType(page, '#f-otime', '99:99');
-    await page.click('#f-save');
+    await domClick(page, '#f-save');
     await sleep(300);
     expect(!(await page.evaluate(() => document.getElementById('f-error').hidden)), 'invalid time accepted');
     await clearType(page, '#f-otime', '0915');
   });
-  await test('total KM auto-calculates', async () => {
-    expect((await text(page, '#f-total')).includes('25'), `expected 25 km, got "${await text(page, '#f-total')}"`);
-  });
-  await test('valid movement entry saves and appears in list', async () => {
-    await page.click('#f-save');
+  await test('new entry saves as In Progress', async () => {
+    await domClick(page, '#f-save');
     await sleep(1200);
-    await page.click('#mv-view-all');
+    await domClick(page, '#mv-view-all');
     await sleep(700);
     await clearType(page, '#ml-search', 'E2E Driver');
     await sleep(600);
     const t = await text(page, '#ml-tbody');
     expect(t.includes('E2E Driver') && t.includes(V1), 'saved entry not in list');
+    expect(t.includes('In Progress'), 'entry not marked In Progress');
   });
-  await test('detail modal shows the entry with audit history', async () => {
-    await page.click('#ml-tbody [data-view]');
-    await waitFor(page, () => !!document.getElementById('active-modal'));
-    const t = await text(page, '#active-modal');
-    expect(t.includes('E2E Driver') && t.includes('Created'), 'detail/audit content missing');
-    await page.click('[data-close-modal]');
+  await test('close modal rejects closing KM below opening KM', async () => {
+    await domClick(page, '#ml-tbody [data-close]');
+    await waitFor(page, () => !!document.getElementById('c-km'));
+    await clearType(page, '#c-km', '150');
+    await domClick(page, '#c-save');
     await sleep(300);
+    expect((await text(page, '#c-error')).includes('cannot be less than'), 'no closing<opening error');
   });
-  await test('editing an entry updates totals and logs the change', async () => {
-    await page.click('#ml-tbody [data-edit]');
-    await sleep(700);
-    await clearType(page, '#f-ckm', '230');
-    await page.click('#f-save');
+  await test('closing the entry completes it with correct total', async () => {
+    await clearType(page, '#c-km', '230');
+    await clearType(page, '#c-time', '1030');
+    expect((await text(page, '#c-total')).includes('30'), `close-modal total wrong: "${await text(page, '#c-total')}"`);
+    await domClick(page, '#c-save');
     await sleep(1200);
     await clearType(page, '#ml-search', 'E2E Driver');
     await sleep(600);
-    expect((await text(page, '#ml-tbody')).includes('30'), 'updated TotalKM (30) not shown');
+    const t = await text(page, '#ml-tbody');
+    expect(t.includes('Completed'), 'entry not marked Completed after close');
+    expect(t.includes('30'), 'TotalKM (30) not shown after close');
+  });
+  await test('audit records the Closed action', async () => {
+    const ok = await page.evaluate((id) =>
+      DB.auditLog.some(a => a.Action === 'Closed' && a.RecordType === 'Movement' && a.Details.includes(id)), V1);
+    expect(ok, 'no Closed audit entry for the test vehicle');
+  });
+  await test('editing a completed entry updates totals', async () => {
+    await domClick(page, '#ml-tbody [data-edit]');
+    await sleep(700);
+    expect(await exists(page, '#f-ckm'), 'closing fields missing when editing a completed entry');
+    await clearType(page, '#f-ckm', '240');
+    await domClick(page, '#f-save');
+    await sleep(1200);
+    await clearType(page, '#ml-search', 'E2E Driver');
+    await sleep(600);
+    expect((await text(page, '#ml-tbody')).includes('40'), 'updated TotalKM (40) not shown');
+  });
+  await test('detail modal shows status and audit history', async () => {
+    await domClick(page, '#ml-tbody [data-view]');
+    await waitFor(page, () => !!document.getElementById('active-modal'));
+    const t = await text(page, '#active-modal');
+    expect(t.includes('E2E Driver') && t.includes('Completed') && t.includes('Closed'), 'detail/status/audit content missing');
+    await domClick(page, '[data-close-modal]');
+    await sleep(300);
   });
 
   /* ------------------------------ REPORTS ---------------------------- */
@@ -272,6 +298,7 @@ async function confirmDialogOk(page){
     await sleep(700);
     const body = await text(page, '#rp-body');
     expect(body.includes(V1), 'test vehicle not in report');
+    expect(body.includes('Status') && body.includes('Completed'), 'Status column missing from report');
     expect(!(await page.evaluate(() => document.getElementById('rp-export').hidden)), 'export buttons not revealed');
   });
   await test('empty date range shows empty state', async () => {
@@ -344,39 +371,79 @@ async function confirmDialogOk(page){
     expect(!(await exists(page, '#btn-reset')), 'operator can see reset');
     expect(!(await exists(page, '#user-tbody')), 'operator can see user management');
   });
-  await test('operator can record a movement entry', async () => {
-    await goRoute(page, 'movements');
+  // Operator form/landing interactions are DOM-driven (see login()): trusted
+  // input coverage for the same code paths exists in the admin sections above.
+  const domStartMovement = async (driver, okm) => {
+    await page.evaluate(() => document.getElementById('mv-new').click());
     const formReady = await waitFor(page, () => !!document.getElementById('f-vehicle'), null, 5000);
-    expect(formReady, 'movement form not shown for operator');
-    // DOM-driven input (see login()): trusted input coverage for this same
-    // form already exists in the admin MOVEMENTS section above.
-    await page.evaluate((reg) => {
+    expect(formReady, 'movement form not shown');
+    await page.evaluate(([reg, drv, km]) => {
       const set = (id, v) => {
         const el = document.getElementById(id);
         el.value = v;
         el.dispatchEvent(new Event('input', { bubbles: true }));
       };
       set('f-vehicle', reg);
-      set('f-driver', 'E2E Op Driver');
-      set('f-okm', '300');
-      set('f-ckm', '318');
+      set('f-driver', drv);
+      set('f-okm', km);
       set('f-purpose', 'E2E Suite operator');
       document.getElementById('mv-form').dispatchEvent(new Event('submit', { cancelable: true }));
-    }, V1);
+    }, [V1, driver, okm]);
     await sleep(1500);
-    const ferr = await page.evaluate(() => {
-      const e = document.getElementById('f-error');
-      return e && !e.hidden ? e.textContent : null;
+  };
+
+  await test('operator landing shows open movements section', async () => {
+    await goRoute(page, 'movements');
+    expect(await exists(page, '#open-list'), 'Open Movements section missing');
+    expect(await exists(page, '#mv-new'), 'New Entry button missing');
+  });
+  await test('operator starts a movement (appears under Open Movements)', async () => {
+    await domStartMovement('E2E Op Driver', '300');
+    const backOnLanding = await waitFor(page, () => !!document.getElementById('open-list'), null, 5000);
+    expect(backOnLanding, 'did not return to landing after save');
+    const openList = await text(page, '#open-list');
+    expect(openList.includes('E2E Op Driver') && openList.includes(V1), 'new open movement not listed');
+  });
+  await test('operator closes the movement from the landing page', async () => {
+    await page.evaluate(() => {
+      const row = Array.from(document.querySelectorAll('.open-mv-row')).find(r => r.textContent.includes('E2E Op Driver'));
+      row.querySelector('[data-close]').click();
     });
-    expect(!ferr, `form rejected the entry: "${ferr}"`);
-    const hasViewAll = await waitFor(page, () => !!document.getElementById('mv-view-all'), null, 5000);
-    expect(hasViewAll, 'view-all button missing after save');
-    await page.evaluate(() => document.getElementById('mv-view-all').click());
-    const listReady = await waitFor(page, () => !!document.getElementById('ml-search'), null, 5000);
-    expect(listReady, 'movement list did not render after view-all');
-    await clearType(page, '#ml-search', 'E2E Op Driver');
-    await sleep(600);
-    expect((await text(page, '#ml-tbody')).includes('E2E Op Driver'), 'operator entry not saved');
+    await waitFor(page, () => !!document.getElementById('c-km'));
+    // reject below-opening first
+    await page.evaluate(() => { const el = document.getElementById('c-km'); el.value = '250'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await page.evaluate(() => document.getElementById('c-save').click());
+    await sleep(300);
+    expect((await text(page, '#c-error')).includes('cannot be less than'), 'close modal accepted lower KM');
+    // then close for real
+    await page.evaluate(() => { const el = document.getElementById('c-km'); el.value = '318'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await page.evaluate(() => document.getElementById('c-save').click());
+    await sleep(1200);
+    const openList = await text(page, '#open-list');
+    expect(!openList.includes('E2E Op Driver'), 'closed movement still listed as open');
+    const myEntries = await text(page, '#ml-tbody');
+    expect(myEntries.includes('E2E Op Driver') && myEntries.includes('Completed') && myEntries.includes('18'), 'closed entry not Completed with 18 km in My Entries');
+  });
+  await test('operator sees only their own entries', async () => {
+    const myEntries = await text(page, '#ml-tbody');
+    // the admin-created entry (driver "E2E Driver") must not appear;
+    // note "E2E Op Driver" does not contain the substring "E2E Driver"
+    expect(!myEntries.includes('E2E Driver'), 'operator can see entries created by other users');
+    expect(myEntries.includes('E2E Op Driver'), 'own entry missing from My Entries');
+  });
+  await test('operator deletes their own entry (audited)', async () => {
+    await domStartMovement('E2E Del Driver', '400');
+    await waitFor(page, () => !!document.getElementById('open-list'), null, 5000);
+    await page.evaluate(() => {
+      const row = Array.from(document.querySelectorAll('.open-mv-row')).find(r => r.textContent.includes('E2E Del Driver'));
+      row.querySelector('[data-del]').click();
+    });
+    await waitFor(page, () => !!document.getElementById('confirm-ok'));
+    await page.evaluate(() => document.getElementById('confirm-ok').click());
+    await sleep(1000);
+    expect(!(await text(page, '#open-list')).includes('E2E Del Driver'), 'deleted entry still listed');
+    const audited = await page.evaluate(() => DB.auditLog.some(a => a.Action === 'Deleted' && a.RecordType === 'Movement' && a.User === 'operator'));
+    expect(audited, 'operator deletion not in audit log');
   });
 
   /* ---------------------------- LIVE SYNC ----------------------------- */
@@ -405,10 +472,34 @@ async function confirmDialogOk(page){
     expect(synced, `vehicle list did not grow from ${before} to ${before + 1} in first browser`);
   });
 
-  /* ------------------------------ CLEANUP ----------------------------- */
-  console.log('CLEANUP');
+  /* ---------------------- ADMIN DELETE PERMISSIONS -------------------- */
+  console.log('ADMIN DELETE');
   await logout(page);
   await login(page, ADMIN);
+  await test('admin can delete an operator-created entry (audited)', async () => {
+    await page.evaluate(() => { App.filters.movements.view = 'list'; location.hash = '#/movements'; renderPage('movements'); });
+    await sleep(700);
+    await page.evaluate(() => {
+      const el = document.getElementById('ml-search');
+      el.value = 'E2E Op Driver';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await sleep(700);
+    expect((await text(page, '#ml-tbody')).includes('E2E Op Driver'), "operator's entry not visible to admin");
+    await page.evaluate(() => document.querySelector('#ml-tbody [data-del]').click());
+    await waitFor(page, () => !!document.getElementById('confirm-ok'));
+    const confirmMsg = await text(page, '#active-modal');
+    expect(confirmMsg.includes('created by') && confirmMsg.includes('operator'), 'confirm dialog does not attribute the creator');
+    await page.evaluate(() => document.getElementById('confirm-ok').click());
+    await sleep(1000);
+    expect(!(await text(page, '#ml-tbody')).includes('E2E Op Driver'), 'entry still present after admin delete');
+    const audited = await page.evaluate(() =>
+      DB.auditLog.some(a => a.Action === 'Deleted' && a.RecordType === 'Movement' && a.User === 'admin' && a.Details.includes('created by operator')));
+    expect(audited, 'admin deletion with creator attribution not in audit log');
+  });
+
+  /* ------------------------------ CLEANUP ----------------------------- */
+  console.log('CLEANUP');
   const removed = await cleanupE2EDocs(page);
   console.log(`  removed ${removed} E2E test document(s) from Firestore`);
 
