@@ -22,14 +22,13 @@ python3 -m http.server 8080
 Any static server works (`npx serve`, VS Code "Live Server", etc.).
 An internet connection is required (Firebase Auth + Firestore).
 
-**Demo credentials:**
+**Accounts:**
 
-| Username | Password | Role |
-|---|---|---|
-| `admin` | `admin123` | Admin |
-| `operator` | `operator123` | Operator |
-
-Change these before real use: log in → **Settings → Change Password**.
+There is one `admin` account; every driver has an Operator account whose
+username is their **Force No.** (accounts are provisioned with
+`scripts/migrate-real-fleet.js` from the unit's drivers list — the source
+spreadsheets stay private and are never committed). Passwords can be
+changed after login via **Settings → Change Password**.
 
 **Roles:**
 
@@ -127,11 +126,12 @@ Firestore automatically (including stale ones from aborted runs).
 
 ```bash
 cd tests && npm install
-node e2e.js                 # against http://localhost:8090
-node e2e.js https://<user>.github.io/<repo>/   # against the live site
+ADMIN_PW=… OPERATOR_USER=… OPERATOR_PW=… node e2e.js          # local server
+ADMIN_PW=… OPERATOR_USER=… OPERATOR_PW=… node e2e.js https://<user>.github.io/<repo>/
 ```
 
-Set `CHROME_PATH` if Chrome is not at the default macOS location.
+Credentials are passed via environment variables (never committed). Set
+`CHROME_PATH` if Chrome is not at the default macOS location.
 
 ## 7. Security notes
 

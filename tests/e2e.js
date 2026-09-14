@@ -6,17 +6,24 @@
 
    Usage:
      cd tests && npm install
-     node e2e.js [url]            # default: http://localhost:8090
+     ADMIN_PW=… OPERATOR_USER=… OPERATOR_PW=… node e2e.js [url]
+     # url defaults to http://localhost:8090
 
-   Env overrides: CHROME_PATH, ADMIN_USER/ADMIN_PW, OPERATOR_USER/OPERATOR_PW
+   Env: ADMIN_PW, OPERATOR_USER, OPERATOR_PW are required (credentials are
+   never committed); optional: ADMIN_USER (default "admin"), CHROME_PATH
    ========================================================================== */
 
 const puppeteer = require('puppeteer-core');
 
 const URL = process.argv[2] || process.env.VMD_URL || 'http://localhost:8090';
 const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const ADMIN = { user: process.env.ADMIN_USER || 'admin', pw: process.env.ADMIN_PW || 'admin123' };
-const OPERATOR = { user: process.env.OPERATOR_USER || 'operator', pw: process.env.OPERATOR_PW || 'operator123' };
+// Real credentials are never committed: pass them via environment variables.
+const ADMIN = { user: process.env.ADMIN_USER || 'admin', pw: process.env.ADMIN_PW };
+const OPERATOR = { user: process.env.OPERATOR_USER, pw: process.env.OPERATOR_PW };
+if (!ADMIN.pw || !OPERATOR.user || !OPERATOR.pw){
+  console.error('Set ADMIN_PW, OPERATOR_USER and OPERATOR_PW environment variables to run the suite.');
+  process.exit(1);
+}
 
 const V1 = 'E2E-99TS-0001'; // main test vehicle
 const V2 = 'E2E-88TS-0002'; // live-sync test vehicle (created from 2nd browser context)
@@ -442,7 +449,7 @@ async function confirmDialogOk(page){
     await page.evaluate(() => document.getElementById('confirm-ok').click());
     await sleep(1000);
     expect(!(await text(page, '#open-list')).includes('E2E Del Driver'), 'deleted entry still listed');
-    const audited = await page.evaluate(() => DB.auditLog.some(a => a.Action === 'Deleted' && a.RecordType === 'Movement' && a.User === 'operator'));
+    const audited = await page.evaluate((op) => DB.auditLog.some(a => a.Action === 'Deleted' && a.RecordType === 'Movement' && a.User === op), OPERATOR.user);
     expect(audited, 'operator deletion not in audit log');
   });
 
@@ -489,12 +496,12 @@ async function confirmDialogOk(page){
     await page.evaluate(() => document.querySelector('#ml-tbody [data-del]').click());
     await waitFor(page, () => !!document.getElementById('confirm-ok'));
     const confirmMsg = await text(page, '#active-modal');
-    expect(confirmMsg.includes('created by') && confirmMsg.includes('operator'), 'confirm dialog does not attribute the creator');
+    expect(confirmMsg.includes('created by') && confirmMsg.includes(OPERATOR.user), 'confirm dialog does not attribute the creator');
     await page.evaluate(() => document.getElementById('confirm-ok').click());
     await sleep(1000);
     expect(!(await text(page, '#ml-tbody')).includes('E2E Op Driver'), 'entry still present after admin delete');
-    const audited = await page.evaluate(() =>
-      DB.auditLog.some(a => a.Action === 'Deleted' && a.RecordType === 'Movement' && a.User === 'admin' && a.Details.includes('created by operator')));
+    const audited = await page.evaluate((op) =>
+      DB.auditLog.some(a => a.Action === 'Deleted' && a.RecordType === 'Movement' && a.User === 'admin' && a.Details.includes('created by ' + op)), OPERATOR.user);
     expect(audited, 'admin deletion with creator attribution not in audit log');
   });
 
