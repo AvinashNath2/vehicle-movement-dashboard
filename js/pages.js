@@ -897,6 +897,8 @@ function renderSettingsPage(container){
         <p class="helper-text">Data is stored in Cloud Firestore and shared live with every user. Export a backup regularly for safekeeping. Importing a backup or resetting affects <strong>all users immediately</strong>.</p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
           <button class="btn btn-outline" id="btn-export-backup" type="button">${icon('download')} Export Full Backup (.xlsx)</button>
+          <button class="btn btn-outline" id="btn-export-mov-xlsx" type="button">${icon('download')} Movements (.xlsx)</button>
+          <button class="btn btn-outline" id="btn-export-mov-json" type="button">${icon('download')} Movements (.json)</button>
           <button class="btn btn-outline" id="btn-import" type="button">${icon('upload')} Import Register / Backup</button>
           <input type="file" id="import-file" accept=".xlsx" hidden>
           <button class="btn btn-danger" id="btn-reset" type="button">${icon('refresh')} Reset to Bundled Sample Data</button>
@@ -941,6 +943,16 @@ function renderSettingsPage(container){
   if (!isAdmin) return;
 
   $('#btn-export-backup').addEventListener('click', () => { DB.exportBackupXlsx(); toast('success', 'Backup downloaded'); });
+  $('#btn-export-mov-xlsx').addEventListener('click', () => {
+    if (!DB.movements.length){ toast('info', 'No movements yet', 'There are no movement entries to export.'); return; }
+    DB.exportMovementsXlsx();
+    toast('success', 'Movements exported', `${DB.movements.length} entr${DB.movements.length === 1 ? 'y' : 'ies'} (.xlsx)`);
+  });
+  $('#btn-export-mov-json').addEventListener('click', () => {
+    if (!DB.movements.length){ toast('info', 'No movements yet', 'There are no movement entries to export.'); return; }
+    DB.exportMovementsJson();
+    toast('success', 'Movements exported', `${DB.movements.length} entr${DB.movements.length === 1 ? 'y' : 'ies'} (.json)`);
+  });
 
   $('#btn-import').addEventListener('click', () => $('#import-file').click());
   $('#import-file').addEventListener('change', async (e) => {

@@ -303,6 +303,32 @@ const DB = {
     XLSX.writeFile(wb, `vehicle-register-backup-${todayISO()}.xlsx`);
   },
 
+  /* ---------------- movements-only exports ---------------- */
+  _sortedMovements(){
+    return this.movements.slice().sort((a, b) => a.Date.localeCompare(b.Date) || String(a.CreatedAt).localeCompare(String(b.CreatedAt)));
+  },
+  exportMovementsXlsx(){
+    const ws = XLSX.utils.json_to_sheet(this._sortedMovements(), {
+      header: ['ID','Date','RegistrationNo','VehicleType','DriverName','RequestedBy','OpeningTime','OpeningKM','ClosingTime','ClosingKM','TotalKM','Status','PurposePlace','PermittedBy','Remarks','CreatedBy','CreatedAt','UpdatedBy','UpdatedAt'],
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Movements');
+    XLSX.writeFile(wb, `movements-${todayISO()}.xlsx`);
+  },
+  exportMovementsJson(){
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      count: this.movements.length,
+      movements: this._sortedMovements(),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `movements-${todayISO()}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  },
+
   /* ---------------- bulk replace (import backup / reset) ---------------- */
   async _commitInChunks(ops){
     // Firestore batches max out at 500 ops.

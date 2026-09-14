@@ -345,7 +345,19 @@ async function confirmDialogOk(page){
   });
   await test('admin sees data management and user management', async () => {
     expect(await exists(page, '#btn-export-backup'), 'export button missing for admin');
+    expect(await exists(page, '#btn-export-mov-xlsx'), 'movements xlsx export button missing');
+    expect(await exists(page, '#btn-export-mov-json'), 'movements json export button missing');
     expect(await exists(page, '#user-tbody'), 'user management missing for admin');
+  });
+  await test('movements-only exports produce data without errors', async () => {
+    const res = await page.evaluate(() => {
+      const rows = DB._sortedMovements();
+      DB.exportMovementsJson();
+      DB.exportMovementsXlsx();
+      return { count: rows.length, sorted: rows.every((m, i) => i === 0 || rows[i-1].Date <= m.Date) };
+    });
+    expect(res.count >= 1, 'no movements available for export test');
+    expect(res.sorted, 'export rows not sorted by date');
   });
 
   /* --------------------------- ROLE: OPERATOR ------------------------- */
