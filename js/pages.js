@@ -135,15 +135,15 @@ function renderVehiclesPage(container){
   container.innerHTML = `
     <div class="card">
       <div class="card-head" style="flex-wrap:wrap;gap:10px">
-        <div style="display:flex;gap:10px;flex:1;min-width:260px">
-          <div class="input-icon" style="flex:1;max-width:320px">${icon('search')}<input type="search" id="veh-search" placeholder="Search registration no. or type…" value="${escapeHtml(f.search)}"></div>
-          <select id="veh-status" style="max-width:160px">
+        <div style="display:flex;gap:10px;flex:1;min-width:260px;align-items:flex-end">
+          <div class="field" style="margin:0;flex:1;max-width:320px"><label>Search</label><div class="input-icon">${icon('search')}<input type="search" id="veh-search" placeholder="Registration no. or type…" value="${escapeHtml(f.search)}"></div></div>
+          <div class="field" style="margin:0;max-width:160px"><label>Status</label><select id="veh-status">
             <option value="ALL" ${f.status==='ALL'?'selected':''}>All Status</option>
             <option value="Active" ${f.status==='Active'?'selected':''}>Active</option>
             <option value="Inactive" ${f.status==='Inactive'?'selected':''}>Inactive</option>
-          </select>
+          </select></div>
         </div>
-        <button class="btn btn-primary" id="btn-add-vehicle" type="button">${icon('plus')} Add Vehicle</button>
+        <button class="btn btn-primary" id="btn-add-vehicle" type="button" style="align-self:flex-end">${icon('plus')} Add Vehicle</button>
       </div>
       <div class="card-pad">
         <div class="table-wrap cards-sm"><table class="data-table">
@@ -307,12 +307,12 @@ function renderMovementForm(container){
             <div class="field"><label>Requested By</label><input type="text" id="f-reqby" value="${escapeHtml(editing?.RequestedBy||'')}" placeholder="Enter name"></div>
           </div>
           <div class="form-row">
-            <div class="field"><label>Opening Time</label><input type="text" id="f-otime" value="${editing?.OpeningTime||''}" placeholder="--:--"></div>
+            <div class="field"><label>Opening Time</label><input type="text" id="f-otime" value="${editing?.OpeningTime||''}" placeholder="e.g. 0930 or 09:30"></div>
             <div class="field"><label>Opening KM *</label><input type="number" min="0" id="f-okm" value="${editing?.OpeningKM ?? ''}" placeholder="0"></div>
           </div>
           ${isCompleted ? `
           <div class="form-row">
-            <div class="field"><label>Closing Time</label><input type="text" id="f-ctime" value="${editing?.ClosingTime||''}" placeholder="--:--"></div>
+            <div class="field"><label>Closing Time</label><input type="text" id="f-ctime" value="${editing?.ClosingTime||''}" placeholder="e.g. 0930 or 09:30"></div>
             <div class="field"><label>Closing KM *</label><input type="number" min="0" id="f-ckm" value="${editing?.ClosingKM ?? ''}" placeholder="0"></div>
           </div>
           <div class="total-km-box">
@@ -514,6 +514,7 @@ function renderOperatorLanding(container){
       <div>
         <div><strong>${escapeHtml(m.RegistrationNo)}</strong> <span class="cell-muted">${escapeHtml(m.VehicleType)}</span></div>
         <div class="meta">${formatDateDMY(m.Date)} · out ${formatTime(m.OpeningTime)} at ${formatNumber(m.OpeningKM)} km · ${escapeHtml(m.DriverName)}</div>
+        <div class="meta" style="margin-top:2px;color:var(--text-secondary)">${escapeHtml(m.PurposePlace)}</div>
       </div>
       <div class="acts">
         <button class="btn btn-primary btn-sm" data-close="${m.ID}" type="button">${icon('check')} Close</button>
@@ -634,13 +635,13 @@ function renderMovementList(container){
       <tr>
         <td class="tabular" data-label="Date">${formatDateDMY(m.Date)}</td>
         <td data-label="Vehicle"><strong>${escapeHtml(m.RegistrationNo)}</strong><div class="cell-muted" style="font-size:11.5px">${escapeHtml(m.VehicleType)}</div></td>
-        <td data-label="Driver">${escapeHtml(m.DriverName)}</td>
+        <td data-label="Driver">${escapeHtml(m.DriverName)}<div class="cell-muted" style="font-size:11.5px">by ${escapeHtml(m.CreatedBy)}</div></td>
         <td data-label="Requested By">${escapeHtml(m.RequestedBy) || '—'}</td>
         <td class="tabular" data-label="Opening KM">${formatNumber(m.OpeningKM)}</td>
         <td class="tabular" data-label="Closing KM">${m.Status === 'Completed' ? formatNumber(m.ClosingKM) : '—'}</td>
         <td class="tabular" data-label="Total KM"><strong>${m.Status === 'Completed' ? formatNumber(m.TotalKM) : '—'}</strong></td>
         <td data-label="Status">${statusBadge(m)}</td>
-        <td data-label="Purpose">${escapeHtml(m.PurposePlace)}</td>
+        <td data-label="Purpose" title="${escapeHtml(m.PurposePlace)}" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(m.PurposePlace)}</td>
         <td class="row-actions">
           <button class="icon-btn" data-view="${m.ID}" title="View details" type="button">${icon('eye')}</button>
           ${m.Status !== 'Completed' ? `<button class="icon-btn" data-close="${m.ID}" title="Close" type="button">${icon('check')}</button>` : ''}
@@ -668,7 +669,7 @@ function openMovementDetailModal(id){
   if (!m) return;
   const hist = DB.auditForRecord(id);
   openModal({
-    title: `Movement ${m.ID}`,
+    title: `${escapeHtml(m.RegistrationNo)} · ${formatDateDMY(m.Date)}`,
     large: true,
     bodyHtml: `
       <div class="two-col">
@@ -886,9 +887,9 @@ function renderAuditPage(container){
     <div class="card">
       <div class="card-head" style="flex-wrap:wrap;gap:10px">
         <div class="input-icon" style="flex:1;min-width:220px">${icon('search')}<input type="search" id="au-search" placeholder="Search user, action, or record…" value="${escapeHtml(f.search)}"></div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <input type="date" id="au-from" value="${f.from}">
-          <input type="date" id="au-to" value="${f.to}">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div class="field" style="margin:0"><label>From Date</label><input type="date" id="au-from" value="${f.from}"></div>
+          <div class="field" style="margin:0"><label>To Date</label><input type="date" id="au-to" value="${f.to}"></div>
           <button class="btn btn-outline btn-sm" id="au-clear" type="button">Clear</button>
         </div>
       </div>
@@ -951,7 +952,7 @@ function renderSettingsPage(container){
           <div class="field"><label>New Password</label><input type="password" id="pw-new"></div>
           <div class="field"><label>Confirm New Password</label><input type="password" id="pw-confirm"></div>
           <div id="pw-error" class="error-text" hidden></div>
-          <button class="btn btn-primary" type="submit">Update Password</button>
+          <button class="btn btn-primary btn-block" type="submit">Update Password</button>
         </form>
       </div>
 
@@ -965,6 +966,10 @@ function renderSettingsPage(container){
           <button class="btn btn-outline" id="btn-export-backup" type="button">${icon('download')} Export Full Backup (.xlsx)</button>
           <button class="btn btn-outline" id="btn-export-mov-xlsx" type="button">${icon('download')} Movements (.xlsx)</button>
           <button class="btn btn-outline" id="btn-export-mov-json" type="button">${icon('download')} Movements (.json)</button>
+        </div>
+        <hr style="border:none;border-top:1px solid var(--border);margin:14px 0">
+        <p class="helper-text" style="margin:0 0 10px;color:var(--critical)">Danger zone — these actions affect all users immediately.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn btn-outline" id="btn-import" type="button">${icon('upload')} Import Register / Backup</button>
           <input type="file" id="import-file" accept=".xlsx" hidden>
           <button class="btn btn-danger" id="btn-reset" type="button">${icon('refresh')} Reset to Bundled Sample Data</button>
@@ -1097,7 +1102,7 @@ function renderSettingsPage(container){
             <div class="field"><label>Force No.</label><input type="text" id="u-forceno" placeholder="e.g. 01020304"></div>
           </div>
           <div class="field"><label>Display Name *</label><input type="text" id="u-display" placeholder="Full name"></div>
-          <div class="field"><label>Password *</label><input type="text" id="u-password" placeholder="Min 6 characters"></div>
+          <div class="field"><label>Password *</label><input type="password" id="u-password" placeholder="Min 6 characters"></div>
           <div class="field"><label>Role</label><select id="u-role"><option>Operator</option><option>Admin</option></select></div>
           <div id="u-error" class="error-text" hidden></div>`,
         footerHtml: `<button class="btn btn-outline" data-close-modal type="button">Cancel</button><button class="btn btn-primary" id="u-save" type="button">Add User</button>`,
