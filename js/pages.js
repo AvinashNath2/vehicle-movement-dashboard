@@ -621,7 +621,7 @@ function renderMovementList(container){
       if (f.vehicle !== 'ALL' && m.RegistrationNo !== f.vehicle) return false;
       if (drv && !m.DriverName.toLowerCase().includes(drv)) return false;
       if (fno){
-        const match = DB.users.find(u => (u.ForceNo||'').toLowerCase() === fno);
+        const match = DB.users.find(u => (u.ForceNo || u.Username).toLowerCase() === fno);
         if (!match || m.CreatedBy !== match.Username) return false;
       }
       if (q && !(`${m.DriverName} ${m.RequestedBy} ${m.PurposePlace} ${m.RegistrationNo}`.toLowerCase().includes(q))) return false;
@@ -644,6 +644,7 @@ function renderMovementList(container){
         <td class="row-actions">
           <button class="icon-btn" data-view="${m.ID}" title="View details" type="button">${icon('eye')}</button>
           ${m.Status !== 'Completed' ? `<button class="icon-btn" data-close="${m.ID}" title="Close" type="button">${icon('check')}</button>` : ''}
+          <button class="icon-btn" data-share="${m.ID}" title="Share" type="button">${icon('share')}</button>
           <button class="icon-btn" data-edit="${m.ID}" title="Edit" type="button">${icon('edit')}</button>
           <button class="icon-btn danger" data-del="${m.ID}" title="Delete" type="button">${icon('trash')}</button>
         </td>
@@ -657,6 +658,7 @@ function renderMovementList(container){
     $$('#ml-tbody [data-view]').forEach(b => b.addEventListener('click', () => openMovementDetailModal(b.dataset.view)));
     $$('#ml-tbody [data-close]').forEach(b => b.addEventListener('click', () => openCloseMovementModal(b.dataset.close)));
     $$('#ml-tbody [data-del]').forEach(b => b.addEventListener('click', () => confirmDeleteMovement(DB.getMovement(b.dataset.del), renderTable)));
+    $$('#ml-tbody [data-share]').forEach(b => b.addEventListener('click', () => openShareModal(b.dataset.share)));
   }
   renderTable();
 }
@@ -715,9 +717,10 @@ function renderReportsPage(container){
     <div class="card">
       <div class="card-head">
         <h2 id="rp-heading">Report</h2>
-        <div class="actions" id="rp-export" style="display:flex;gap:8px" hidden>
+        <div class="actions" id="rp-export" style="display:flex;gap:8px;flex-wrap:wrap" hidden>
           <button class="btn btn-outline btn-sm" id="rp-xlsx" type="button">${icon('download')} Excel (.xlsx)</button>
           <button class="btn btn-outline btn-sm" id="rp-pdf" type="button">${icon('download')} PDF</button>
+          <button class="btn btn-outline btn-sm" id="rp-img" type="button">${icon('share')} Share Image</button>
         </div>
       </div>
       <div class="card-pad" id="rp-body">
@@ -786,6 +789,48 @@ function renderReportsPage(container){
     const rows = currentRows();
     if (!rows.length){ toast('error', 'Nothing to export', 'Generate a report with at least one record first.'); return; }
     exportReportPdf(f, rows);
+  });
+  $('#rp-img').addEventListener('click', async () => {
+    const body = $('#rp-body');
+    if (!body || body.querySelector('.empty-state')){ toast('error', 'Nothing to share', 'Generate a report first.'); return; }
+    const btn = $('#rp-img');
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner"></span> Capturing…`;
+    let imgSrc = null;
+    try {
+      if (typeof html2canvas !== 'undefined'){
+        const canvas = await html2canvas(body, { scale: 2, backgroundColor: '#fff', logging: false });
+        imgSrc = canvas.toDataURL('image/png');
+      }
+    } catch(e){ console.warn('html2canvas:', e); }
+    finally { btn.disabled = false; btn.innerHTML = `${icon('share')} Share Image`; }
+    if (!imgSrc){ toast('error', 'Image capture failed', 'Check console for details.'); return; }
+    openModal({
+      title: 'Share Report as Image',
+      large: true,
+      bodyHtml: `<img src="${imgSrc}" style="width:100%;border-radius:8px;border:1px solid var(--border);display:block">`,
+      footerHtml: `
+        <button class="btn btn-outline" data-close-modal type="button">Close</button>
+        <button class="btn btn-outline btn-sm" id="rp-img-dl" type="button">${icon('download')} Download PNG</button>
+        <button class="btn btn-sm" style="background:#25D366;color:#fff;border:none" id="rp-img-wa" type="button">${icon('share')} WhatsApp</button>`,
+      onMount: (bd) => {
+        $('#rp-img-dl', bd).addEventListener('click', () => {
+          const a = document.createElement('a'); a.href = imgSrc;
+          a.download = `Vehicle_Report_${f.from}_to_${f.to}.png`; a.click();
+        });
+        $('#rp-img-wa', bd).addEventListener('click', async () => {
+          if (imgSrc && navigator.share && navigator.canShare){
+            try {
+              const res = await fetch(imgSrc); const blob = await res.blob();
+              const file = new File([blob], `Report_${f.from}_to_${f.to}.png`, { type:'image/png' });
+              if (navigator.canShare({ files:[file] })){ await navigator.share({ files:[file], title:'Vehicle Movement Report' }); return; }
+            } catch(e){ /* fall through */ }
+          }
+          const title = encodeURIComponent(`*03 BN NDRF — Vehicle Movement Report*\nDate: ${formatDateDMY(f.from)} to ${formatDateDMY(f.to)}\nVehicle: ${f.vehicle === 'ALL' ? 'All' : f.vehicle}`);
+          window.open(`https://wa.me/?text=${title}`, '_blank');
+        });
+      },
+    });
   });
 }
 
@@ -1023,7 +1068,7 @@ function renderSettingsPage(container){
         <tr>
           <td><strong>${escapeHtml(u.Username)}</strong></td>
           <td>${escapeHtml(u.DisplayName)}</td>
-          <td class="cell-muted">${escapeHtml(u.ForceNo||'—')}</td>
+          <td class="cell-muted">${escapeHtml(u.ForceNo || u.Username)}</td>
           <td>${escapeHtml(u.Role)}</td>
           <td><span class="badge ${String(u.Active).toLowerCase()==='yes'?'badge-good':'badge-muted'}">${String(u.Active).toLowerCase()==='yes'?'Active':'Inactive'}</span></td>
           <td class="row-actions">
