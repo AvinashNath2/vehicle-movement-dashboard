@@ -158,6 +158,180 @@ function confirmDialog({ title, message, confirmText, danger, onConfirm }){
   $('#confirm-ok', backdrop).addEventListener('click', () => { closeModal(); onConfirm(); });
 }
 
+/* ---------------- searchable dropdown ---------------- */
+function vehicleSelectOptions({ onlyActive, includeAll } = {}){
+  const list = DB.vehicles
+    .filter(v => !onlyActive || v.Status === 'Active')
+    .slice().sort((a,b) => a.RegistrationNo.localeCompare(b.RegistrationNo))
+    .map(v => ({ value: v.RegistrationNo, label: `${v.RegistrationNo} — ${v.VehicleType}${v.Status!=='Active'?' (Inactive)':''}` }));
+  return includeAll ? [{ value: 'ALL', label: 'All Vehicles' }, ...list] : list;
+}
+
+function buildSearchableSelect({ id, options, value, placeholder }){
+  const sel = options.find(o => o.value === value);
+  const optsHtml = options.map(o =>
+    `<li data-ss-val="${escapeHtml(o.value)}" ${o.value===value?'class="ss-selected"':''}>${escapeHtml(o.label)}</li>`
+  ).join('');
+  return `<div class="ss-wrap" data-ss-id="${escapeHtml(id)}">
+      <input type="text" class="ss-input" id="${id}-input" placeholder="${escapeHtml(placeholder||'Search…')}" value="${sel?escapeHtml(sel.label):''}" autocomplete="off" spellcheck="false">
+      <ul class="ss-list" id="${id}-list" hidden>${optsHtml}</ul>
+    </div>
+    <input type="hidden" id="${id}" value="${escapeHtml(value||'')}">`;
+}
+
+function wireSearchableSelect(id, onChange){
+  const input = document.getElementById(`${id}-input`);
+  const list  = document.getElementById(`${id}-list`);
+  const hidden = document.getElementById(id);
+  if (!input || !list || !hidden) return;
+
+  const items = () => Array.from(list.querySelectorAll('li'));
+
+  function filterList(q){
+    const ql = q.trim().toLowerCase();
+    items().forEach(li => { li.hidden = !!(ql && !li.textContent.toLowerCase().includes(ql)); });
+  }
+  function selectItem(val, label){
+    hidden.value = val;
+    items().forEach(li => li.classList.toggle('ss-selected', li.dataset.ssVal === val));
+    input.value = label;
+    list.hidden = true;
+    if (onChange) onChange(val);
+  }
+  function openList(){
+    filterList(''); list.hidden = false;
+    const s = list.querySelector('li.ss-selected');
+    if (s) s.scrollIntoView({ block:'nearest' });
+  }
+
+  input.addEventListener('focus',  () => { input.select(); openList(); });
+  input.addEventListener('input',  () => { filterList(input.value); list.hidden = false; });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape'){ list.hidden = true; input.blur(); return; }
+    if (e.key === 'Enter'){
+      e.preventDefault();
+      const vis = items().filter(li => !li.hidden);
+      if (vis.length === 1) selectItem(vis[0].dataset.ssVal, vis[0].textContent.trim());
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+      e.preventDefault();
+      const vis = items().filter(li => !li.hidden);
+      const cur = vis.findIndex(li => li.classList.contains('ss-focus'));
+      vis.forEach(li => li.classList.remove('ss-focus'));
+      const next = e.key === 'ArrowDown' ? (vis[cur+1] || vis[0]) : (vis[cur-1] || vis[vis.length-1]);
+      if (next){ next.classList.add('ss-focus'); next.scrollIntoView({ block:'nearest' }); }
+    }
+  });
+  list.addEventListener('mousedown', (e) => {
+    const li = e.target.closest('li');
+    if (!li) return;
+    e.preventDefault();
+    selectItem(li.dataset.ssVal, li.textContent.trim());
+  });
+  input.addEventListener('blur', () => {
+    setTimeout(() => {
+      if (!list.hidden){
+        const sel = list.querySelector('li.ss-selected');
+        input.value = sel ? sel.textContent.trim() : '';
+        list.hidden = true;
+      }
+    }, 150);
+  });
+  // Init display from currently selected item
+  const initSel = list.querySelector('li.ss-selected');
+  if (initSel) input.value = initSel.textContent.trim();
+}
+
+/* ---------------- whatsapp movement share ---------------- */
+async function openShareModal(movId){
+  const m = DB.getMovement(movId);
+  if (!m) return;
+  const date   = formatDateDMY(m.Date);
+  const outT   = m.OpeningTime ? formatTime(m.OpeningTime) : '—';
+  const inT    = m.ClosingTime ? formatTime(m.ClosingTime) : '—';
+  const done   = m.Status === 'Completed';
+  const lines  = [
+    '*03 BN NDRF — Vehicle Movement*',
+    '━━━━━━━━━━━━━━━━',
+    `Veh: ${m.RegistrationNo} (${m.VehicleType})`,
+    `Driver: ${m.DriverName}`,
+    `Date: ${date}`,
+    `Out: ${outT} @ ${formatNumber(m.OpeningKM)} km`,
+    ...(done ? [`In: ${inT} @ ${formatNumber(m.ClosingKM)} km`, `Total: ${fmtKm(m.TotalKM)}`] : []),
+    `Purpose: ${m.PurposePlace}`,
+    ...(m.PermittedBy ? [`Permitted By: ${m.PermittedBy}`] : []),
+    `Status: ${done ? '✅ Completed' : '🔴 In Progress'}`,
+    '━━━━━━━━━━━━━━━━',
+  ];
+  const text = lines.join('\n');
+
+  // Build off-screen card for capture
+  const card = document.createElement('div');
+  card.className = 'mv-share-card';
+  card.innerHTML = `
+    <div class="sc-head"><div class="sc-unit">03 BN NDRF, MUNDALI</div><div class="sc-sub">Vehicle Movement Record</div></div>
+    <table class="sc-table">
+      <tr><td class="sk">Vehicle</td><td class="sv">${escapeHtml(m.RegistrationNo)} — ${escapeHtml(m.VehicleType)}</td></tr>
+      <tr><td class="sk">Date</td><td class="sv">${date}</td></tr>
+      <tr><td class="sk">Driver</td><td class="sv">${escapeHtml(m.DriverName)}</td></tr>
+      <tr><td class="sk">Out Time</td><td class="sv">${outT}&nbsp;&nbsp;(${formatNumber(m.OpeningKM)} km)</td></tr>
+      ${done ? `<tr><td class="sk">In Time</td><td class="sv">${inT}&nbsp;&nbsp;(${formatNumber(m.ClosingKM)} km)</td></tr>
+      <tr><td class="sk">Total KM</td><td class="sv"><strong>${fmtKm(m.TotalKM)}</strong></td></tr>` : ''}
+      <tr><td class="sk">Purpose</td><td class="sv">${escapeHtml(m.PurposePlace)}</td></tr>
+      ${m.PermittedBy ? `<tr><td class="sk">Permitted By</td><td class="sv">${escapeHtml(m.PermittedBy)}</td></tr>` : ''}
+      <tr><td class="sk">Status</td><td class="sv sc-status-${done?'ok':'wip'}">${done ? '✅ Completed' : '🔴 In Progress'}</td></tr>
+    </table>`;
+  document.body.appendChild(card);
+
+  let imgSrc = null;
+  if (typeof html2canvas !== 'undefined'){
+    try {
+      const canvas = await html2canvas(card, { scale:2, backgroundColor:'#fff', logging:false });
+      imgSrc = canvas.toDataURL('image/png');
+    } catch(e){ console.warn('html2canvas:', e); }
+  }
+  document.body.removeChild(card);
+
+  const imgHtml = imgSrc ? `<img src="${imgSrc}" style="width:100%;border-radius:8px;margin-bottom:14px;border:1px solid var(--border)">` : '';
+  openModal({
+    title: 'Share Movement',
+    bodyHtml: `
+      ${imgHtml}
+      <div class="field"><label>WhatsApp Message</label>
+        <textarea id="share-text" rows="8" style="font-size:13px;font-family:monospace">${escapeHtml(text)}</textarea>
+      </div>`,
+    footerHtml: `
+      <button class="btn btn-outline" data-close-modal type="button">Close</button>
+      <button class="btn btn-outline btn-sm" id="share-copy" type="button">${icon('doc')} Copy Text</button>
+      ${imgSrc ? `<button class="btn btn-outline btn-sm" id="share-dl" type="button">${icon('download')} Save Image</button>` : ''}
+      <button class="btn btn-sm" style="background:#25D366;color:#fff;border:none" id="share-wa" type="button">${icon('share')} WhatsApp</button>`,
+    onMount: (bd) => {
+      $('#share-copy', bd).addEventListener('click', async () => {
+        const t = $('#share-text', bd).value;
+        try { await navigator.clipboard.writeText(t); } catch { const s = $('#share-text', bd); s.select(); document.execCommand('copy'); }
+        toast('success', 'Copied to clipboard');
+      });
+      $('#share-dl', bd)?.addEventListener('click', () => {
+        const a = document.createElement('a');
+        a.href = imgSrc; a.download = `movement-${m.RegistrationNo}-${m.Date}.png`; a.click();
+      });
+      $('#share-wa', bd).addEventListener('click', async () => {
+        const t = $('#share-text', bd).value;
+        if (imgSrc && navigator.share && navigator.canShare){
+          try {
+            const res = await fetch(imgSrc);
+            const blob = await res.blob();
+            const file = new File([blob], `movement-${m.RegistrationNo}.png`, { type:'image/png' });
+            if (navigator.canShare({ files:[file] })){ await navigator.share({ files:[file], text:t }); return; }
+          } catch(e){ /* fall through */ }
+        }
+        window.open(`https://wa.me/?text=${encodeURIComponent(t)}`, '_blank');
+      });
+    },
+  });
+}
+
 /* ---------------- tiny state-driven pagination helper ---------------- */
 function paginate(items, page, pageSize){
   const total = items.length;

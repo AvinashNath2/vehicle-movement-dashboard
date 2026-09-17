@@ -3,7 +3,7 @@
 function makeDefaultFilters(){
   return {
     dashboard: { from: todayISO(), to: todayISO(), vehicle: 'ALL' },
-    movements: { view: 'form', search: '', from: '', to: '', vehicle: 'ALL', driver: '', requestedBy: '', page: 1, editingId: null },
+    movements: { view: 'form', search: '', from: '', to: '', vehicle: 'ALL', driver: '', forceNo: '', requestedBy: '', page: 1, editingId: null },
     vehicles: { search: '', status: 'ALL', page: 1 },
     reports: { from: todayISO(), to: todayISO(), vehicle: 'ALL', generated: false },
     audit: { search: '', from: '', to: '', page: 1 },

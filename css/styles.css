@@ -263,6 +263,38 @@ table.data-table{ width:100%; border-collapse:collapse; min-width:640px; }
 .badge-critical{ background:var(--critical-bg); color:var(--critical); }
 .badge-warning{ background:var(--warning-bg); color:var(--warning); }
 
+/* ---------- searchable dropdown ---------- */
+.ss-wrap{ position:relative; }
+.ss-input{ width:100%; }
+.ss-list{
+  position:absolute; top:calc(100% + 2px); left:0; right:0; z-index:50;
+  background:#fff; border:1px solid var(--border-strong); border-radius:var(--radius-sm);
+  box-shadow:var(--shadow); max-height:220px; overflow-y:auto; padding:4px 0;
+  list-style:none; margin:0;
+}
+.ss-list li{ padding:8px 12px; font-size:13.5px; cursor:pointer; }
+.ss-list li:hover, .ss-list li.ss-focus{ background:#f2f5fb; }
+.ss-list li.ss-selected{ background:var(--brand-bg); color:var(--brand); font-weight:600; }
+.ss-list li.ss-selected.ss-focus{ background:var(--brand-bg); }
+@media (max-width:640px){ .ss-list li{ font-size:16px; padding:11px 12px; } }
+
+/* ---------- movement share card (captured by html2canvas) ---------- */
+.mv-share-card{
+  position:absolute; left:-9999px; top:0;
+  width:420px; background:#fff; font-family:system-ui,-apple-system,sans-serif;
+  border:1px solid #cdd4e2; border-radius:12px; overflow:hidden;
+}
+.mv-share-card .sc-head{ background:#2a78d6; color:#fff; padding:14px 18px; }
+.mv-share-card .sc-unit{ font-size:15px; font-weight:700; }
+.mv-share-card .sc-sub{ font-size:11px; opacity:.85; margin-top:2px; }
+.mv-share-card .sc-table{ width:100%; border-collapse:collapse; font-size:13px; }
+.mv-share-card .sc-table tr{ border-bottom:1px solid #e4e8f1; }
+.mv-share-card .sc-table tr:last-child{ border-bottom:none; }
+.mv-share-card .sk{ padding:9px 16px; color:#57606f; font-weight:600; width:36%; white-space:nowrap; }
+.mv-share-card .sv{ padding:9px 16px; color:#14181f; }
+.mv-share-card .sc-status-ok{ color:#0ca30c; font-weight:700; }
+.mv-share-card .sc-status-wip{ color:#d03b3b; font-weight:700; }
+
 /* operator landing: open movement rows */
 .open-mv-row{
   display:flex; align-items:center; justify-content:space-between; gap:12px;

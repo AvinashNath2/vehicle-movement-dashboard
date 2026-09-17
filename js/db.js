@@ -242,12 +242,64 @@ const DB = {
     const key = String(username || '').trim().toLowerCase();
     return this.users.find(u => u.Username.toLowerCase() === key);
   },
-  addUserProfile({ Username, DisplayName, Role }, user){
-    const u = { Username: Username.trim().toLowerCase(), DisplayName: DisplayName.trim(), Role, Active: 'Yes' };
+  addUserProfile({ Username, DisplayName, Role, ForceNo }, user){
+    const u = { Username: Username.trim().toLowerCase(), DisplayName: DisplayName.trim(), Role, Active: 'Yes', ForceNo: (ForceNo || '').trim() };
     this.users.push(u);
     this._write(FB.setDoc(FB.doc(FB.db, 'users', u.Username), u));
     this.logAudit(user, 'Created', 'User', u.Username, `User added with role ${u.Role}`);
     return u;
+  },
+  updateUserProfile(username, { DisplayName, ForceNo }, user){
+    const u = this.findUser(username);
+    if (!u) return null;
+    const changes = [];
+    if (DisplayName !== undefined && DisplayName.trim() !== u.DisplayName){
+      changes.push(`DisplayName: "${u.DisplayName}" → "${DisplayName.trim()}"`);
+      u.DisplayName = DisplayName.trim();
+    }
+    const newFno = (ForceNo || '').trim();
+    if (ForceNo !== undefined && newFno !== (u.ForceNo || '')){
+      changes.push(`ForceNo: "${u.ForceNo||''}" → "${newFno}"`);
+      u.ForceNo = newFno;
+    }
+    if (changes.length){
+      this._write(FB.updateDoc(FB.doc(FB.db, 'users', u.Username), { DisplayName: u.DisplayName, ForceNo: u.ForceNo || '' }));
+      this.logAudit(user, 'Updated', 'User', u.Username, changes.join('; '));
+    }
+    return u;
+  },
+  async updateUsername(oldUsername, newUsername, currentPw, user){
+    const newName = newUsername.trim().toLowerCase();
+    if (this.findUser(newName)) throw Object.assign(new Error('That username is already taken.'), { code: 'username-taken' });
+    const appName = 'username-change';
+    const secondary = FB.getApps().some(a => a.name === appName)
+      ? FB.getApp(appName) : FB.initializeApp(FB.firebaseConfig, appName);
+    const secondaryAuth = FB.getAuth(secondary);
+    await FB.signInWithEmailAndPassword(secondaryAuth, this.emailFor(oldUsername), currentPw);
+    await FB.updateEmail(secondaryAuth.currentUser, this.emailFor(newName));
+    await FB.signOut(secondaryAuth);
+    const oldUser = this.findUser(oldUsername);
+    const newUserDoc = { ...oldUser, Username: newName };
+    const batch = FB.writeBatch(FB.db);
+    batch.set(FB.doc(FB.db, 'users', newName), newUserDoc);
+    batch.delete(FB.doc(FB.db, 'users', oldUsername));
+    const toUpdate = this.movements.filter(m => m.CreatedBy === oldUsername);
+    toUpdate.forEach(m => { m.CreatedBy = newName; batch.update(FB.doc(FB.db, 'movements', m.ID), { CreatedBy: newName }); });
+    await batch.commit();
+    const idx = this.users.indexOf(oldUser);
+    if (idx > -1) this.users[idx] = newUserDoc;
+    this.logAudit(user, 'Updated', 'User', oldUsername, `Username changed to "${newName}" (${toUpdate.length} movement(s) updated)`);
+    return newUserDoc;
+  },
+  async adminResetPassword(username, currentPw, newPw, adminUser){
+    const appName = 'pwd-reset';
+    const secondary = FB.getApps().some(a => a.name === appName)
+      ? FB.getApp(appName) : FB.initializeApp(FB.firebaseConfig, appName);
+    const secondaryAuth = FB.getAuth(secondary);
+    await FB.signInWithEmailAndPassword(secondaryAuth, this.emailFor(username), currentPw);
+    await FB.updatePassword(secondaryAuth.currentUser, newPw);
+    await FB.signOut(secondaryAuth);
+    this.logAudit(adminUser, 'Updated', 'User', username, 'Password reset by admin');
   },
   setUserActive(username, active, user){
     const u = this.findUser(username);
@@ -297,7 +349,7 @@ const DB = {
     };
     addSheet('Vehicles', this.vehicles, ['RegistrationNo','VehicleType','Status','AddedOn','AddedBy']);
     // No passwords in backups — credentials live in Firebase Authentication.
-    addSheet('Users', this.users.map(u => ({ Username: u.Username, DisplayName: u.DisplayName, Role: u.Role, Active: u.Active })), ['Username','DisplayName','Role','Active']);
+    addSheet('Users', this.users.map(u => ({ Username: u.Username, DisplayName: u.DisplayName, Role: u.Role, Active: u.Active, ForceNo: u.ForceNo || '' })), ['Username','DisplayName','Role','Active','ForceNo']);
     addSheet('Movements', this.movements, ['ID','Date','RegistrationNo','VehicleType','DriverName','RequestedBy','OpeningTime','OpeningKM','ClosingTime','ClosingKM','TotalKM','Status','PurposePlace','PermittedBy','Remarks','CreatedBy','CreatedAt','UpdatedBy','UpdatedAt']);
     addSheet('AuditLog', this.auditLog, ['ID','Timestamp','User','Action','RecordType','RecordId','Details']);
     XLSX.writeFile(wb, `vehicle-register-backup-${todayISO()}.xlsx`);

@@ -28,7 +28,7 @@ function renderDashboardPage(container){
       <div class="field"><label>From Date</label><input type="date" id="db-from" value="${f.from}"></div>
       <div class="field"><label>To Date</label><input type="date" id="db-to" value="${f.to}"></div>
       <div class="field grow"><label>Vehicle</label>
-        <select id="db-vehicle"><option value="ALL">All Vehicles</option>${vehicleOptionsHtml(f.vehicle === 'ALL' ? '' : f.vehicle)}</select>
+        ${buildSearchableSelect({ id:'db-vehicle', options:vehicleSelectOptions({includeAll:true}), value:f.vehicle||'ALL', placeholder:'All Vehicles' })}
       </div>
       <div class="actions">
         <button class="btn btn-primary" id="db-apply" type="button">Apply</button>
@@ -53,6 +53,7 @@ function renderDashboardPage(container){
     </div>
   `;
 
+  wireSearchableSelect('db-vehicle');
   $('#db-apply').addEventListener('click', () => {
     f.from = $('#db-from').value || todayISO();
     f.to = $('#db-to').value || todayISO();
@@ -260,7 +261,7 @@ function movementsHomeView(){
 function statusBadge(m){
   return m.Status === 'Completed'
     ? '<span class="badge badge-good">Completed</span>'
-    : '<span class="badge badge-warning">In Progress</span>';
+    : '<span class="badge badge-critical">In Progress</span>';
 }
 function goMovementsHome(){
   const f = App.filters.movements;
@@ -299,7 +300,7 @@ function renderMovementForm(container){
         <form id="mv-form">
           <div class="form-row">
             <div class="field"><label>Date *</label><input type="date" id="f-date" value="${editing?.Date || todayISO()}"></div>
-            <div class="field"><label>Vehicle *</label><select id="f-vehicle"><option value="">Select Vehicle</option>${vehicleOptionsHtml(editing?.RegistrationNo, { onlyActive: !editing })}</select></div>
+            <div class="field"><label>Vehicle *</label>${buildSearchableSelect({ id:'f-vehicle', options:[{value:'',label:'Select Vehicle…'},...vehicleSelectOptions({onlyActive:!editing})], value:editing?.RegistrationNo||'', placeholder:'Search vehicle…' })}</div>
           </div>
           <div class="form-row">
             <div class="field"><label>Driver Name *</label><input type="text" id="f-driver" value="${escapeHtml(editing?.DriverName||'')}" placeholder="Enter driver name"></div>
@@ -354,6 +355,7 @@ function renderMovementForm(container){
     recalc();
   }
 
+  wireSearchableSelect('f-vehicle');
   $('#mv-back').addEventListener('click', goMovementsHome);
   $('#mv-view-all')?.addEventListener('click', goMovementsHome);
   $('#f-cancel').addEventListener('click', goMovementsHome);
@@ -383,7 +385,7 @@ function renderMovementForm(container){
 
     const missing = [];
     if (!data.Date) missing.push('#f-date');
-    if (!data.RegistrationNo) missing.push('#f-vehicle');
+    if (!data.RegistrationNo) missing.push('#f-vehicle-input');
     if (!data.DriverName) missing.push('#f-driver');
     if (!data.PurposePlace) missing.push('#f-purpose');
     if (data.OpeningKM === '' || isNaN(Number(data.OpeningKM))) missing.push('#f-okm');
@@ -483,7 +485,7 @@ function renderOperatorLanding(container){
     <div class="card" style="margin-bottom:16px">
       <div class="card-head">
         <h2 style="display:flex;align-items:center;gap:8px">Open Movements
-          ${open.length ? `<span class="badge badge-warning">${open.length}</span>` : ''}</h2>
+          ${open.length ? `<span class="badge badge-critical">${open.length}</span>` : ''}</h2>
         <button class="btn btn-primary btn-sm" id="mv-new" type="button">${icon('plus')} New Entry</button>
       </div>
       <div class="card-pad" id="open-list"></div>
@@ -515,6 +517,7 @@ function renderOperatorLanding(container){
       </div>
       <div class="acts">
         <button class="btn btn-primary btn-sm" data-close="${m.ID}" type="button">${icon('check')} Close</button>
+        <button class="icon-btn" data-share="${m.ID}" title="Share" type="button">${icon('share')}</button>
         <button class="icon-btn" data-edit="${m.ID}" title="Edit" type="button">${icon('edit')}</button>
         <button class="icon-btn danger" data-del="${m.ID}" title="Delete" type="button">${icon('trash')}</button>
       </div>
@@ -529,6 +532,7 @@ function renderOperatorLanding(container){
 
   const wireRowActions = (root, refresh) => {
     $$('[data-close]', root).forEach(b => b.addEventListener('click', () => openCloseMovementModal(b.dataset.close)));
+    $$('[data-share]', root).forEach(b => b.addEventListener('click', () => openShareModal(b.dataset.share)));
     $$('[data-edit]', root).forEach(b => b.addEventListener('click', () => { f.editingId = b.dataset.edit; f.view = 'form'; renderPage('movements'); }));
     $$('[data-del]', root).forEach(b => b.addEventListener('click', () => confirmDeleteMovement(DB.getMovement(b.dataset.del), refresh)));
     $$('[data-view]', root).forEach(b => b.addEventListener('click', () => openMovementDetailModal(b.dataset.view)));
@@ -556,6 +560,7 @@ function renderOperatorLanding(container){
         <td class="row-actions">
           <button class="icon-btn" data-view="${m.ID}" title="View details" type="button">${icon('eye')}</button>
           ${m.Status !== 'Completed' ? `<button class="icon-btn" data-close="${m.ID}" title="Close" type="button">${icon('check')}</button>` : ''}
+          <button class="icon-btn" data-share="${m.ID}" title="Share" type="button">${icon('share')}</button>
           <button class="icon-btn" data-edit="${m.ID}" title="Edit" type="button">${icon('edit')}</button>
           <button class="icon-btn danger" data-del="${m.ID}" title="Delete" type="button">${icon('trash')}</button>
         </td>
@@ -580,7 +585,9 @@ function renderMovementList(container){
           <div class="field grow"><label>Search</label><div class="input-icon">${icon('search')}<input type="search" id="ml-search" placeholder="Driver, requested by, purpose…" value="${escapeHtml(f.search)}"></div></div>
           <div class="field"><label>From Date</label><input type="date" id="ml-from" value="${f.from}"></div>
           <div class="field"><label>To Date</label><input type="date" id="ml-to" value="${f.to}"></div>
-          <div class="field"><label>Vehicle</label><select id="ml-vehicle"><option value="ALL">All Vehicles</option>${vehicleOptionsHtml(f.vehicle==='ALL'?'':f.vehicle)}</select></div>
+          <div class="field"><label>Vehicle</label>${buildSearchableSelect({ id:'ml-vehicle', options:vehicleSelectOptions({includeAll:true}), value:f.vehicle||'ALL', placeholder:'All Vehicles' })}</div>
+          <div class="field"><label>Driver Name</label><input type="search" id="ml-driver" placeholder="Filter by driver…" value="${escapeHtml(f.driver||'')}"></div>
+          <div class="field"><label>Force No.</label><input type="search" id="ml-forceno" placeholder="Filter by force no.…" value="${escapeHtml(f.forceNo||'')}"></div>
           <div class="actions"><button class="btn btn-outline" id="ml-clear" type="button">Clear</button></div>
         </div>
         <div class="table-wrap cards-sm"><table class="data-table">
@@ -596,18 +603,27 @@ function renderMovementList(container){
   $('#ml-search').addEventListener('input', debounce(() => { f.search = $('#ml-search').value; f.page = 1; renderTable(); }, 200));
   $('#ml-from').addEventListener('change', () => { f.from = $('#ml-from').value; f.page = 1; renderTable(); });
   $('#ml-to').addEventListener('change', () => { f.to = $('#ml-to').value; f.page = 1; renderTable(); });
-  $('#ml-vehicle').addEventListener('change', () => { f.vehicle = $('#ml-vehicle').value; f.page = 1; renderTable(); });
+  wireSearchableSelect('ml-vehicle', (val) => { f.vehicle = val; f.page = 1; renderTable(); });
+  $('#ml-driver').addEventListener('input', debounce(() => { f.driver = $('#ml-driver').value; f.page = 1; renderTable(); }, 200));
+  $('#ml-forceno').addEventListener('input', debounce(() => { f.forceNo = $('#ml-forceno').value; f.page = 1; renderTable(); }, 200));
   $('#ml-clear').addEventListener('click', () => {
-    Object.assign(f, { search:'', from:'', to:'', vehicle:'ALL', page:1 });
+    Object.assign(f, { search:'', from:'', to:'', vehicle:'ALL', driver:'', forceNo:'', page:1 });
     renderPage('movements');
   });
 
   function renderTable(){
     const q = f.search.trim().toLowerCase();
+    const drv = (f.driver || '').trim().toLowerCase();
+    const fno = (f.forceNo || '').trim().toLowerCase();
     let rows = DB.movements.filter(m => {
       if (f.from && m.Date < f.from) return false;
       if (f.to && m.Date > f.to) return false;
       if (f.vehicle !== 'ALL' && m.RegistrationNo !== f.vehicle) return false;
+      if (drv && !m.DriverName.toLowerCase().includes(drv)) return false;
+      if (fno){
+        const match = DB.users.find(u => (u.ForceNo||'').toLowerCase() === fno);
+        if (!match || m.CreatedBy !== match.Username) return false;
+      }
       if (q && !(`${m.DriverName} ${m.RequestedBy} ${m.PurposePlace} ${m.RegistrationNo}`.toLowerCase().includes(q))) return false;
       return true;
     }).sort((a,b) => b.Date.localeCompare(a.Date) || b.ID.localeCompare(a.ID));
@@ -693,7 +709,7 @@ function renderReportsPage(container){
     <div class="card card-pad filter-bar">
       <div class="field"><label>From Date</label><input type="date" id="rp-from" value="${f.from}"></div>
       <div class="field"><label>To Date</label><input type="date" id="rp-to" value="${f.to}"></div>
-      <div class="field grow"><label>Vehicle</label><select id="rp-vehicle"><option value="ALL">All Vehicles</option>${vehicleOptionsHtml(f.vehicle==='ALL'?'':f.vehicle)}</select></div>
+      <div class="field grow"><label>Vehicle</label>${buildSearchableSelect({ id:'rp-vehicle', options:vehicleSelectOptions({includeAll:true}), value:f.vehicle||'ALL', placeholder:'All Vehicles' })}</div>
       <div class="actions"><button class="btn btn-primary" id="rp-generate" type="button">${icon('list')} Generate Report</button></div>
     </div>
     <div class="card">
@@ -709,6 +725,7 @@ function renderReportsPage(container){
       </div>
     </div>`;
 
+  wireSearchableSelect('rp-vehicle');
   $('#rp-generate').addEventListener('click', () => {
     f.from = $('#rp-from').value || todayISO();
     f.to = $('#rp-to').value || todayISO();
@@ -737,10 +754,13 @@ function renderReportsPage(container){
           generated by ${escapeHtml(App.user.DisplayName)} on ${formatDateTime(new Date().toISOString())}
         </div>
         <div class="table-wrap"><table class="data-table">
-          <thead><tr><th>Date</th><th>Vehicle</th><th>Type</th><th>Driver</th><th>Requested By</th><th>Opening KM</th><th>Closing KM</th><th>Total KM</th><th>Status</th><th>Purpose</th><th>Permitted By</th></tr></thead>
+          <thead><tr><th>#</th><th>Date</th><th>Out Time</th><th>In Time</th><th>Vehicle</th><th>Type</th><th>Driver</th><th>Requested By</th><th>Opening KM</th><th>Closing KM</th><th>Total KM</th><th>Status</th><th>Purpose</th><th>Permitted By</th></tr></thead>
           <tbody>
-            ${rows.map(m => `<tr>
+            ${rows.map((m, i) => `<tr>
+              <td class="tabular cell-muted">${i+1}</td>
               <td class="tabular">${formatDateDMY(m.Date)}</td>
+              <td class="tabular">${m.OpeningTime ? formatTime(m.OpeningTime) : '—'}</td>
+              <td class="tabular">${m.Status==='Completed'&&m.ClosingTime ? formatTime(m.ClosingTime) : '—'}</td>
               <td>${escapeHtml(m.RegistrationNo)}</td>
               <td>${escapeHtml(m.VehicleType)}</td>
               <td>${escapeHtml(m.DriverName)}</td>
@@ -753,7 +773,7 @@ function renderReportsPage(container){
               <td>${escapeHtml(m.PermittedBy)}</td>
             </tr>`).join('')}
           </tbody>
-          <tfoot><tr><td colspan="7">Total</td><td class="tabular">${formatNumber(totalKm)}</td><td colspan="3"></td></tr></tfoot>
+          <tfoot><tr><td colspan="10">Total</td><td class="tabular">${formatNumber(totalKm)}</td><td colspan="3"></td></tr></tfoot>
         </table></div>`;
   }
 
@@ -777,13 +797,13 @@ function exportReportXlsx(f, rows){
     [`Vehicle: ${f.vehicle === 'ALL' ? 'All Vehicles' : f.vehicle}`],
     [`Generated by: ${App.user.DisplayName} on ${formatDateTime(new Date().toISOString())}`],
     [],
-    ['Date','Vehicle','Type','Driver','Requested By','Opening KM','Closing KM','Total KM','Status','Purpose / Place','Permitted By'],
-    ...rows.map(m => [formatDateDMY(m.Date), m.RegistrationNo, m.VehicleType, m.DriverName, m.RequestedBy, m.OpeningKM, m.ClosingKM, m.TotalKM, m.Status, m.PurposePlace, m.PermittedBy]),
+    ['#','Date','Out Time','In Time','Vehicle','Type','Driver','Requested By','Opening KM','Closing KM','Total KM','Status','Purpose / Place','Permitted By'],
+    ...rows.map((m, i) => [i+1, formatDateDMY(m.Date), m.OpeningTime ? formatTime(m.OpeningTime) : '', m.Status==='Completed'&&m.ClosingTime ? formatTime(m.ClosingTime) : '', m.RegistrationNo, m.VehicleType, m.DriverName, m.RequestedBy, m.OpeningKM, m.ClosingKM, m.TotalKM, m.Status, m.PurposePlace, m.PermittedBy]),
     [],
-    ['', '', '', '', '', '', 'Total', totalKm, '', '', ''],
+    ['', '', '', '', '', '', '', '', '', 'Total', totalKm, '', '', ''],
   ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:12},{wch:14},{wch:12},{wch:16},{wch:16},{wch:11},{wch:11},{wch:10},{wch:12},{wch:24},{wch:14}];
+  ws['!cols'] = [{wch:5},{wch:12},{wch:10},{wch:10},{wch:14},{wch:12},{wch:16},{wch:16},{wch:11},{wch:11},{wch:10},{wch:12},{wch:22},{wch:14}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Report');
   XLSX.writeFile(wb, `Vehicle_Movement_Report_${f.from}_to_${f.to}.xlsx`);
@@ -801,12 +821,13 @@ function exportReportPdf(f, rows){
   doc.text(`Generated by ${App.user.DisplayName} on ${formatDateTime(new Date().toISOString())}`, 14, 27);
   doc.autoTable({
     startY: 33,
-    head: [['Date','Vehicle','Type','Driver','Requested By','Opening KM','Closing KM','Total KM','Status','Purpose / Place','Permitted By']],
-    body: rows.map(m => [formatDateDMY(m.Date), m.RegistrationNo, m.VehicleType, m.DriverName, m.RequestedBy, formatNumber(m.OpeningKM), formatNumber(m.ClosingKM), formatNumber(m.TotalKM), m.Status, m.PurposePlace, m.PermittedBy]),
-    foot: [['', '', '', '', '', '', 'Total', formatNumber(totalKm), '', '', '']],
-    styles: { fontSize: 8.5 },
+    head: [['#','Date','Out','In','Vehicle','Type','Driver','Requested By','Open KM','Close KM','Total KM','Status','Purpose / Place','Permitted By']],
+    body: rows.map((m,i) => [i+1, formatDateDMY(m.Date), m.OpeningTime?formatTime(m.OpeningTime):'', m.Status==='Completed'&&m.ClosingTime?formatTime(m.ClosingTime):'', m.RegistrationNo, m.VehicleType, m.DriverName, m.RequestedBy, formatNumber(m.OpeningKM), formatNumber(m.ClosingKM), formatNumber(m.TotalKM), m.Status, m.PurposePlace, m.PermittedBy]),
+    foot: [['','','','','','','','','','Total', formatNumber(totalKm),'','','']],
+    styles: { fontSize: 7.5 },
     headStyles: { fillColor: [42,120,214] },
     footStyles: { fillColor: [238,242,251], textColor: [20,24,31] },
+    columnStyles: { 0:{cellWidth:8}, 1:{cellWidth:20}, 2:{cellWidth:14}, 3:{cellWidth:14}, 10:{cellWidth:16} },
   });
   doc.save(`Vehicle_Movement_Report_${f.from}_to_${f.to}.pdf`);
   toast('success', 'PDF report downloaded');
@@ -911,7 +932,7 @@ function renderSettingsPage(container){
       <div class="card-head"><h2>User Management</h2><button class="btn btn-primary btn-sm" id="btn-add-user" type="button">${icon('plus')} Add User</button></div>
       <div class="card-pad">
         <div class="table-wrap"><table class="data-table">
-          <thead><tr><th>Username</th><th>Display Name</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Username</th><th>Display Name</th><th>Force No.</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody id="user-tbody"></tbody>
         </table></div>
       </div>
@@ -1002,9 +1023,12 @@ function renderSettingsPage(container){
         <tr>
           <td><strong>${escapeHtml(u.Username)}</strong></td>
           <td>${escapeHtml(u.DisplayName)}</td>
+          <td class="cell-muted">${escapeHtml(u.ForceNo||'—')}</td>
           <td>${escapeHtml(u.Role)}</td>
           <td><span class="badge ${String(u.Active).toLowerCase()==='yes'?'badge-good':'badge-muted'}">${String(u.Active).toLowerCase()==='yes'?'Active':'Inactive'}</span></td>
           <td class="row-actions">
+            <button class="icon-btn" data-uedit="${u.Username}" title="Edit user" type="button">${icon('edit')}</button>
+            <button class="icon-btn" data-ureset="${u.Username}" title="Reset password" type="button">${icon('lockReset')}</button>
             <button class="icon-btn" data-utoggle="${u.Username}" title="Toggle access" type="button">${icon(String(u.Active).toLowerCase()==='yes'?'x':'check')}</button>
           </td>
         </tr>`).join('');
@@ -1014,6 +1038,8 @@ function renderSettingsPage(container){
         DB.setUserActive(u.Username, String(u.Active).toLowerCase() !== 'yes', App.user);
         renderUsers();
       }));
+      $$('#user-tbody [data-uedit]').forEach(b => b.addEventListener('click', () => openEditUserModal(DB.findUser(b.dataset.uedit), renderUsers)));
+      $$('#user-tbody [data-ureset]').forEach(b => b.addEventListener('click', () => openResetPasswordModal(b.dataset.ureset)));
     }
     renderUsers();
 
@@ -1021,9 +1047,12 @@ function renderSettingsPage(container){
       openModal({
         title: 'Add User',
         bodyHtml: `
-          <div class="field"><label>Username *</label><input type="text" id="u-username"></div>
-          <div class="field"><label>Display Name *</label><input type="text" id="u-display"></div>
-          <div class="field"><label>Password *</label><input type="text" id="u-password"></div>
+          <div class="form-row">
+            <div class="field"><label>Username *</label><input type="text" id="u-username" placeholder="e.g. john123"></div>
+            <div class="field"><label>Force No.</label><input type="text" id="u-forceno" placeholder="e.g. 01020304"></div>
+          </div>
+          <div class="field"><label>Display Name *</label><input type="text" id="u-display" placeholder="Full name"></div>
+          <div class="field"><label>Password *</label><input type="text" id="u-password" placeholder="Min 6 characters"></div>
           <div class="field"><label>Role</label><select id="u-role"><option>Operator</option><option>Admin</option></select></div>
           <div id="u-error" class="error-text" hidden></div>`,
         footerHtml: `<button class="btn btn-outline" data-close-modal type="button">Cancel</button><button class="btn btn-primary" id="u-save" type="button">Add User</button>`,
@@ -1032,9 +1061,10 @@ function renderSettingsPage(container){
           const display = $('#u-display', bd).value.trim();
           const pw = $('#u-password', bd).value;
           const role = $('#u-role', bd).value;
+          const forceno = $('#u-forceno', bd).value.trim();
           const err = $('#u-error', bd);
           const fail = (msg) => { err.textContent = msg; err.hidden = false; };
-          if (!username || !display || !pw){ fail('All fields are required.'); return; }
+          if (!username || !display || !pw){ fail('Username, display name and password are required.'); return; }
           if (!/^[a-z0-9._-]+$/.test(username)){ fail('Username can only contain letters, numbers, dots, dashes and underscores.'); return; }
           if (pw.length < 6){ fail('Password must be at least 6 characters.'); return; }
           if (DB.findUser(username)){ fail('That username is already taken.'); return; }
@@ -1049,7 +1079,7 @@ function renderSettingsPage(container){
             const secondaryAuth = FB.getAuth(secondary);
             await FB.createUserWithEmailAndPassword(secondaryAuth, DB.emailFor(username), pw);
             await FB.signOut(secondaryAuth);
-            DB.addUserProfile({ Username: username, DisplayName: display, Role: role }, App.user);
+            DB.addUserProfile({ Username: username, DisplayName: display, Role: role, ForceNo: forceno }, App.user);
             toast('success', 'User added', username);
             closeModal();
             renderPage('settings');
@@ -1063,4 +1093,88 @@ function renderSettingsPage(container){
       });
     });
   }
+}
+
+function openEditUserModal(u, onSaved){
+  if (!u) return;
+  openModal({
+    title: `Edit User — ${u.Username}`,
+    bodyHtml: `
+      <div class="field"><label>Display Name *</label><input type="text" id="eu-display" value="${escapeHtml(u.DisplayName)}"></div>
+      <div class="field"><label>Force No.</label><input type="text" id="eu-forceno" value="${escapeHtml(u.ForceNo||'')}" placeholder="e.g. 01020304"></div>
+      <div class="section-title">Change Username</div>
+      <p class="helper-text" style="margin-bottom:10px">Changing the username updates the login email. Admin must know the user's current password.</p>
+      <div class="form-row">
+        <div class="field"><label>New Username</label><input type="text" id="eu-newname" value="${escapeHtml(u.Username)}" placeholder="${escapeHtml(u.Username)}"></div>
+        <div class="field"><label>User's Current Password</label><input type="password" id="eu-curpw" placeholder="Required only if renaming"></div>
+      </div>
+      <div id="eu-error" class="error-text" hidden></div>`,
+    footerHtml: `<button class="btn btn-outline" data-close-modal type="button">Cancel</button><button class="btn btn-primary" id="eu-save" type="button">Save Changes</button>`,
+    onMount: (bd) => $('#eu-save', bd).addEventListener('click', async () => {
+      const display  = $('#eu-display', bd).value.trim();
+      const forceno  = $('#eu-forceno', bd).value.trim();
+      const newname  = $('#eu-newname', bd).value.trim().toLowerCase();
+      const curpw    = $('#eu-curpw', bd).value;
+      const err = $('#eu-error', bd);
+      const fail = (msg) => { err.textContent = msg; err.hidden = false; };
+      if (!display){ fail('Display name is required.'); return; }
+      const btn = $('#eu-save', bd);
+      btn.disabled = true;
+      try {
+        // Profile-only update (display name / force no)
+        DB.updateUserProfile(u.Username, { DisplayName: display, ForceNo: forceno }, App.user);
+        // Username rename (if changed)
+        if (newname && newname !== u.Username){
+          if (!curpw){ fail('Current password is required to change the username.'); btn.disabled = false; return; }
+          if (!/^[a-z0-9._-]+$/.test(newname)){ fail('Username can only contain letters, numbers, dots, dashes and underscores.'); btn.disabled = false; return; }
+          await DB.updateUsername(u.Username, newname, curpw, App.user);
+          if (App.user.Username === u.Username) App.user.Username = newname;
+        }
+        toast('success', 'User updated', newname || u.Username);
+        closeModal();
+        if (onSaved) onSaved();
+      } catch(e){
+        btn.disabled = false;
+        if (e.code === 'username-taken') fail('That username is already taken.');
+        else if (['auth/invalid-credential','auth/wrong-password'].includes(e.code)) fail('Current password is incorrect.');
+        else if (e.code === 'auth/email-already-in-use') fail('That username is already taken.');
+        else { fail('Error: ' + (e.message || e.code)); console.error(e); }
+      }
+    }),
+  });
+}
+
+function openResetPasswordModal(username){
+  openModal({
+    title: `Reset Password — ${username}`,
+    bodyHtml: `
+      <p class="helper-text" style="margin-bottom:14px">Admin must provide the user's current password to set a new one. If the password is unknown, delete and recreate the user account.</p>
+      <div class="field"><label>User's Current Password *</label><input type="password" id="rp-curpw" placeholder="User's existing password"></div>
+      <div class="field"><label>New Password *</label><input type="password" id="rp-newpw" placeholder="Min 6 characters"></div>
+      <div class="field"><label>Confirm New Password *</label><input type="password" id="rp-cfpw" placeholder="Re-enter new password"></div>
+      <div id="rp-error" class="error-text" hidden></div>`,
+    footerHtml: `<button class="btn btn-outline" data-close-modal type="button">Cancel</button><button class="btn btn-primary" id="rp-save" type="button">Reset Password</button>`,
+    onMount: (bd) => $('#rp-save', bd).addEventListener('click', async () => {
+      const cur  = $('#rp-curpw', bd).value;
+      const nw   = $('#rp-newpw', bd).value;
+      const cf   = $('#rp-cfpw', bd).value;
+      const err  = $('#rp-error', bd);
+      const fail = (msg) => { err.textContent = msg; err.hidden = false; };
+      if (!cur || !nw || !cf){ fail('All fields are required.'); return; }
+      if (nw.length < 6){ fail('New password must be at least 6 characters.'); return; }
+      if (nw !== cf){ fail('Passwords do not match.'); return; }
+      const btn = $('#rp-save', bd);
+      btn.disabled = true;
+      try {
+        await DB.adminResetPassword(username, cur, nw, App.user);
+        toast('success', 'Password reset', username);
+        closeModal();
+      } catch(e){
+        btn.disabled = false;
+        if (['auth/invalid-credential','auth/wrong-password'].includes(e.code)) fail('Current password is incorrect.');
+        else if (e.code === 'auth/weak-password') fail('New password is too weak (min 6 characters).');
+        else { fail('Error: ' + (e.message || e.code)); console.error(e); }
+      }
+    }),
+  });
 }

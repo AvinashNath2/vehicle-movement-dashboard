@@ -8,7 +8,7 @@
 import { initializeApp, getApp, getApps } from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js';
 import {
   getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  onAuthStateChanged, signOut, updatePassword,
+  onAuthStateChanged, signOut, updatePassword, updateEmail,
   reauthenticateWithCredential, EmailAuthProvider,
 } from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js';
 import {
@@ -43,6 +43,6 @@ window.FB = {
   initializeApp, getApp, getApps, getAuth,
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
   onAuthStateChanged, signOut, updatePassword,
-  reauthenticateWithCredential, EmailAuthProvider,
+  reauthenticateWithCredential, EmailAuthProvider, updateEmail,
   collection, doc, setDoc, updateDoc, deleteDoc, getDocs, onSnapshot, writeBatch,
 };
