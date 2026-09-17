@@ -979,12 +979,22 @@ function renderSettingsPage(container){
 
     ${isAdmin ? `
     <div class="card" style="margin-top:16px">
-      <div class="card-head"><h2>User Management</h2><button class="btn btn-primary btn-sm" id="btn-add-user" type="button">${icon('plus')} Add User</button></div>
+      <div class="card-head">
+        <h2>User Management</h2>
+        <button class="btn btn-primary btn-sm" id="btn-add-user" type="button">${icon('plus')} Add User</button>
+      </div>
       <div class="card-pad">
+        <div class="filter-bar" style="margin-bottom:14px">
+          <div class="field grow"><label>Search</label><div class="input-icon">${icon('search')}<input type="search" id="usr-search" placeholder="Name, username, or force no…"></div></div>
+          <div class="field"><label>Role</label><select id="usr-role"><option value="ALL">All Roles</option><option value="Admin">Admin</option><option value="Operator">Operator</option></select></div>
+          <div class="field"><label>Status</label><select id="usr-status"><option value="ALL">All Status</option><option value="Active">Active</option><option value="Inactive">Inactive</option></select></div>
+        </div>
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>Username</th><th>Display Name</th><th>Force No.</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody id="user-tbody"></tbody>
         </table></div>
+        <div id="usr-empty"></div>
+        <div id="usr-pagination"></div>
       </div>
     </div>` : ''}
   `;
@@ -1068,20 +1078,37 @@ function renderSettingsPage(container){
   });
 
   if (isAdmin){
+    const uf = { search: '', role: 'ALL', status: 'ALL', page: 1 };
+
     function renderUsers(){
-      $('#user-tbody').innerHTML = DB.users.map(u => `
+      const q = uf.search.trim().toLowerCase();
+      const filtered = DB.users.filter(u => {
+        if (uf.role !== 'ALL' && u.Role !== uf.role) return false;
+        const active = String(u.Active).toLowerCase() === 'yes' ? 'Active' : 'Inactive';
+        if (uf.status !== 'ALL' && active !== uf.status) return false;
+        if (q && !(`${u.Username} ${u.DisplayName} ${u.ForceNo || u.Username}`.toLowerCase().includes(q))) return false;
+        return true;
+      });
+      const info = paginate(filtered, uf.page, 8);
+      $('#usr-empty').innerHTML = info.total ? '' : `<div class="empty-state">${icon('user')}<div>No users match your filters.</div></div>`;
+      $('#user-tbody').innerHTML = info.rows.map(u => {
+        const isActive = String(u.Active).toLowerCase() === 'yes';
+        return `
         <tr>
           <td><strong>${escapeHtml(u.Username)}</strong></td>
           <td>${escapeHtml(u.DisplayName)}</td>
           <td class="cell-muted">${escapeHtml(u.ForceNo || u.Username)}</td>
           <td>${escapeHtml(u.Role)}</td>
-          <td><span class="badge ${String(u.Active).toLowerCase()==='yes'?'badge-good':'badge-muted'}">${String(u.Active).toLowerCase()==='yes'?'Active':'Inactive'}</span></td>
+          <td><span class="badge ${isActive?'badge-good':'badge-muted'}">${isActive?'Active':'Inactive'}</span></td>
           <td class="row-actions">
             <button class="icon-btn" data-uedit="${u.Username}" title="Edit user" type="button">${icon('edit')}</button>
             <button class="icon-btn" data-ureset="${u.Username}" title="Reset password" type="button">${icon('lockReset')}</button>
-            <button class="icon-btn" data-utoggle="${u.Username}" title="Toggle access" type="button">${icon(String(u.Active).toLowerCase()==='yes'?'x':'check')}</button>
+            <button class="icon-btn" data-utoggle="${u.Username}" title="${isActive?'Deactivate':'Activate'}" type="button">${icon(isActive?'x':'check')}</button>
           </td>
-        </tr>`).join('');
+        </tr>`;
+      }).join('');
+      $('#usr-pagination').innerHTML = paginationHtml(info);
+      wirePagination($('#usr-pagination'), (p) => { uf.page = p; renderUsers(); });
       $$('#user-tbody [data-utoggle]').forEach(b => b.addEventListener('click', () => {
         const u = DB.findUser(b.dataset.utoggle);
         if (u.Username === App.user.Username){ toast('error', 'Not allowed', "You can't revoke your own access."); return; }
@@ -1091,6 +1118,10 @@ function renderSettingsPage(container){
       $$('#user-tbody [data-uedit]').forEach(b => b.addEventListener('click', () => openEditUserModal(DB.findUser(b.dataset.uedit), renderUsers)));
       $$('#user-tbody [data-ureset]').forEach(b => b.addEventListener('click', () => openResetPasswordModal(b.dataset.ureset)));
     }
+
+    $('#usr-search').addEventListener('input', debounce(() => { uf.search = $('#usr-search').value; uf.page = 1; renderUsers(); }, 200));
+    $('#usr-role').addEventListener('change', () => { uf.role = $('#usr-role').value; uf.page = 1; renderUsers(); });
+    $('#usr-status').addEventListener('change', () => { uf.status = $('#usr-status').value; uf.page = 1; renderUsers(); });
     renderUsers();
 
     $('#btn-add-user').addEventListener('click', () => {
