@@ -139,10 +139,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 }
 .login-card h1{
   text-align:center; margin:0 0 4px;
-  font-family: var(--font-serif); font-weight:400; font-size:34px; line-height:1.1;
-  color:var(--ink); letter-spacing:-.01em;
+  font-family: var(--font-sans); font-weight:700; font-size:28px; line-height:1.15;
+  color:var(--ink); letter-spacing:-.02em;
 }
-.login-card h1::after{ content:'.'; color:var(--accent); }
 .login-card .sub{ text-align:center; color:var(--ink-soft); margin:0 0 26px; font-size:13.5px;}
 .login-card .hint{ text-align:center; color:var(--ink-muted); font-size:12.5px; margin-top:18px; }
 .field{ margin-bottom:14px; }
@@ -218,10 +217,9 @@ input.invalid, select.invalid{
   display:flex; align-items:center; justify-content:center;
 }
 .sidebar-brand .name{
-  font-family:var(--font-serif); font-weight:400; font-size:26px; line-height:1;
+  font-family:var(--font-sans); font-weight:700; font-size:18px; line-height:1;
   color:var(--ink); letter-spacing:-.01em;
 }
-.sidebar-brand .name::after{ content:'.'; color:var(--accent); }
 
 .nav{ padding:4px 4px; display:flex; flex-direction:column; gap:2px; flex:1; }
 .nav::before{
