@@ -485,6 +485,143 @@ table.data-table{ width:100%; border-collapse:collapse; min-width:640px; }
 @media (max-width:640px){ .ss-list li{ font-size:16px; padding:12px; } }
 
 /* ---------- movement share card (captured by html2canvas) ---------- */
+/* ---------- shared share-card frame (movement / report / dashboard) ---------- */
+.share-card{
+  background:#fff; color:#141414; box-sizing:border-box;
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  border:1px solid #DCDBE0; border-radius:16px; overflow:hidden;
+}
+.share-card *{ box-sizing:border-box; }
+.share-card .sc-head{
+  background:#141414; color:#fff; padding:22px 28px;
+}
+.share-card .sc-unit{
+  font-family:"Instrument Serif", "Fraunces", "Playfair Display", ui-serif, serif;
+  font-size:26px; font-weight:400; letter-spacing:-.01em; line-height:1.2;
+}
+.share-card .sc-sub{
+  font-size:11px; opacity:.85; margin-top:6px;
+  letter-spacing:.1em; text-transform:uppercase; font-weight:500;
+}
+
+/* ---------- report share card (full-data capture) ---------- */
+.report-share-card{ width:1200px; padding:0 0 24px; }
+.report-share-card .rsc-meta{
+  display:flex; flex-wrap:wrap; gap:32px;
+  padding:20px 28px; border-bottom:1px solid #EDECEF;
+}
+.report-share-card .rsc-meta > div{ display:flex; flex-direction:column; gap:4px; }
+.report-share-card .rsc-meta span{
+  font-size:10.5px; color:#9A9AA3; font-weight:500;
+  text-transform:uppercase; letter-spacing:.08em;
+}
+.report-share-card .rsc-meta strong{ font-size:15px; color:#141414; font-weight:600; }
+.report-share-card .rsc-table{
+  width:100%; border-collapse:collapse; font-size:11.5px;
+  margin:0; table-layout:auto;
+}
+.report-share-card .rsc-table th{
+  background:#F7F6FA; color:#4C4C55;
+  font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em;
+  padding:11px 10px; text-align:left; border-bottom:1px solid #DCDBE0; white-space:nowrap;
+}
+.report-share-card .rsc-table td{
+  padding:10px; border-bottom:1px solid #EDECEF;
+  vertical-align:top; color:#141414; font-size:11.5px; line-height:1.4;
+}
+.report-share-card .rsc-table td.rsc-num{
+  white-space:nowrap; font-variant-numeric:tabular-nums;
+}
+.report-share-card .rsc-table tfoot td{
+  background:#F7F6FA; font-weight:600; padding:11px 10px;
+  border-bottom:none; border-top:1px solid #DCDBE0;
+}
+.report-share-card .rsc-status{
+  display:inline-block; padding:3px 10px; border-radius:999px;
+  font-size:10.5px; font-weight:600; line-height:1;
+}
+.report-share-card .rsc-status-ok{  background:#DFF0E4; color:#2F9553; }
+.report-share-card .rsc-status-wip{ background:#FBD3DB; color:#8C2A44; }
+.report-share-card .rsc-foot{
+  font-size:11.5px; color:#9A9AA3; text-align:right;
+  padding:14px 28px 4px;
+}
+
+/* ---------- dashboard share card ---------- */
+.dashboard-share-card{ width:1100px; padding:0 0 24px; }
+.dashboard-share-card .rsc-meta{
+  display:flex; flex-wrap:wrap; gap:32px;
+  padding:20px 28px; border-bottom:1px solid #EDECEF;
+}
+.dashboard-share-card .rsc-meta > div{ display:flex; flex-direction:column; gap:4px; }
+.dashboard-share-card .rsc-meta span{
+  font-size:10.5px; color:#9A9AA3; font-weight:500;
+  text-transform:uppercase; letter-spacing:.08em;
+}
+.dashboard-share-card .rsc-meta strong{ font-size:15px; color:#141414; font-weight:600; }
+.dashboard-share-card .dsc-kpis{
+  display:grid; grid-template-columns:repeat(4, 1fr); gap:14px;
+  padding:24px 28px;
+}
+.dashboard-share-card .dsc-kpi{
+  background:#F7F6FA; border-radius:14px; padding:18px 20px;
+}
+.dashboard-share-card .dsc-kpi-lbl{ font-size:12px; color:#4C4C55; font-weight:500; }
+.dashboard-share-card .dsc-kpi-val{
+  font-size:28px; font-weight:600; color:#141414;
+  margin:4px 0; letter-spacing:-.02em; font-variant-numeric:tabular-nums;
+}
+.dashboard-share-card .dsc-kpi-sub{ font-size:11px; color:#9A9AA3; }
+.dashboard-share-card .dsc-cols{
+  display:grid; grid-template-columns:1.6fr 1fr; gap:20px;
+  padding:0 28px 20px;
+}
+.dashboard-share-card .dsc-section{
+  background:#fff; border:1px solid #EDECEF; border-radius:14px; padding:22px 24px;
+}
+.dashboard-share-card .dsc-section-title{
+  font-size:14px; font-weight:600; color:#141414; margin-bottom:20px; letter-spacing:-.005em;
+}
+.dashboard-share-card .dsc-bar-wrap{
+  display:flex; align-items:flex-end; justify-content:space-between;
+  gap:10px; height:180px; padding-top:24px;
+}
+.dashboard-share-card .dsc-bar-col{
+  flex:1; display:flex; flex-direction:column; align-items:center; gap:6px;
+  font-size:10.5px; color:#9A9AA3; min-width:0;
+}
+.dashboard-share-card .dsc-bar{
+  width:100%; max-width:36px; background:#141414; border-radius:6px 6px 0 0;
+}
+.dashboard-share-card .dsc-bar-val{
+  font-size:10px; color:#4C4C55; font-weight:600; margin-bottom:2px;
+  font-variant-numeric:tabular-nums;
+}
+.dashboard-share-card .dsc-bar-lbl{ font-size:10.5px; color:#9A9AA3; font-weight:500; }
+.dashboard-share-card .dsc-rank-wrap{ display:flex; flex-direction:column; gap:12px; }
+.dashboard-share-card .dsc-rank{
+  display:grid; grid-template-columns:130px 1fr auto; gap:12px; align-items:center;
+  font-size:12px;
+}
+.dashboard-share-card .dsc-rank-name{
+  display:flex; flex-direction:column; gap:2px; min-width:0;
+}
+.dashboard-share-card .dsc-rank-name strong{
+  font-size:12.5px; font-weight:600; color:#141414;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.dashboard-share-card .dsc-rank-name span{ font-size:10.5px; color:#9A9AA3; }
+.dashboard-share-card .dsc-rank-track{ height:8px; background:#F7F6FA; border-radius:4px; overflow:hidden; }
+.dashboard-share-card .dsc-rank-fill{ height:100%; background:#141414; border-radius:4px; }
+.dashboard-share-card .dsc-rank-val{
+  font-size:12px; font-weight:600; color:#141414; font-variant-numeric:tabular-nums;
+}
+.dashboard-share-card .dsc-empty{ color:#9A9AA3; text-align:center; padding:24px; }
+.dashboard-share-card .rsc-foot{
+  font-size:11.5px; color:#9A9AA3; text-align:right;
+  padding:0 28px;
+}
+
 .mv-share-card{
   position:absolute; left:-9999px; top:0;
   width:460px; background:#fff;

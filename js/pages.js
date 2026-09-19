@@ -147,19 +147,28 @@ function renderDashboardPage(container){
   });
 
   $('#db-share').addEventListener('click', async () => {
-    const cap = $('#dashboard-capture');
-    if (!cap){ toast('error', 'Nothing to share', 'Dashboard not ready.'); return; }
+    if (!$('#dashboard-capture')){ toast('error', 'Nothing to share', 'Dashboard not ready.'); return; }
     const btn = $('#db-share');
     btn.disabled = true;
     btn.innerHTML = `<span class="spinner"></span> Capturing…`;
+    // Off-screen branded card so the capture always includes the full
+    // KPI grid + charts regardless of viewport size.
+    const card = buildDashboardShareCard(f, inRange, days, activeDriver, totalKm, vehiclesUsed);
+    document.body.appendChild(card);
     let imgSrc = null;
     try {
       if (typeof html2canvas !== 'undefined'){
-        const canvas = await html2canvas(cap, { scale: 2, backgroundColor: '#fff', logging: false });
+        const canvas = await html2canvas(card, {
+          scale: 2, backgroundColor: '#fff', logging: false,
+          windowWidth: card.scrollWidth, windowHeight: card.scrollHeight,
+        });
         imgSrc = canvas.toDataURL('image/png');
       }
     } catch(e){ console.warn('html2canvas:', e); }
-    finally { btn.disabled = false; btn.innerHTML = `${icon('share')} Share as Image`; }
+    finally {
+      document.body.removeChild(card);
+      btn.disabled = false; btn.innerHTML = `${icon('share')} Share as Image`;
+    }
     if (!imgSrc){ toast('error', 'Image capture failed', 'Check console for details.'); return; }
     openModal({
       title: 'Share Dashboard as Image',
@@ -1033,19 +1042,31 @@ function renderReportsPage(container){
     exportReportPdf(f, rows);
   });
   $('#rp-img').addEventListener('click', async () => {
-    const body = $('#rp-body');
-    if (!body || body.querySelector('.empty-state')){ toast('error', 'Nothing to share', 'Generate a report first.'); return; }
+    const rows = currentRows();
+    if (!rows.length){ toast('error', 'Nothing to share', 'Generate a report first.'); return; }
+    const totalKm = rows.reduce((s,m) => s + Number(m.TotalKM||0), 0);
+    const vehiclesUsed = new Set(rows.map(m => m.RegistrationNo)).size;
     const btn = $('#rp-img');
     btn.disabled = true;
     btn.innerHTML = `<span class="spinner"></span> Capturing…`;
+    // Off-screen full-data card so the capture is not truncated by the
+    // horizontal-scrolling on-page .table-wrap or by viewport height.
+    const card = buildReportShareCard(f, rows, totalKm, vehiclesUsed);
+    document.body.appendChild(card);
     let imgSrc = null;
     try {
       if (typeof html2canvas !== 'undefined'){
-        const canvas = await html2canvas(body, { scale: 2, backgroundColor: '#fff', logging: false });
+        const canvas = await html2canvas(card, {
+          scale: 2, backgroundColor: '#fff', logging: false,
+          windowWidth: card.scrollWidth, windowHeight: card.scrollHeight,
+        });
         imgSrc = canvas.toDataURL('image/png');
       }
     } catch(e){ console.warn('html2canvas:', e); }
-    finally { btn.disabled = false; btn.innerHTML = `${icon('share')} Share Image`; }
+    finally {
+      document.body.removeChild(card);
+      btn.disabled = false; btn.innerHTML = `${icon('share')} Share Image`;
+    }
     if (!imgSrc){ toast('error', 'Image capture failed', 'Check console for details.'); return; }
     openModal({
       title: 'Share Report as Image',
@@ -1076,6 +1097,127 @@ function renderReportsPage(container){
   });
 
   if (f.generated) renderReportBody();
+}
+
+function buildReportShareCard(f, rows, totalKm, vehiclesUsed){
+  const card = document.createElement('div');
+  card.className = 'share-card report-share-card';
+  card.style.position = 'absolute';
+  card.style.left = '-9999px';
+  card.style.top = '0';
+  const rowsHtml = rows.map((m, i) => `
+    <tr>
+      <td>${i+1}</td>
+      <td class="rsc-num">${formatDateDMY(m.Date)}</td>
+      <td class="rsc-num">${m.OpeningTime ? formatTime(m.OpeningTime) : '—'}</td>
+      <td class="rsc-num">${m.Status==='Completed' && m.ClosingTime ? formatTime(m.ClosingTime) : '—'}</td>
+      <td><strong>${escapeHtml(m.RegistrationNo)}</strong></td>
+      <td>${escapeHtml(m.VehicleType)}</td>
+      <td>${escapeHtml(m.DriverName)}</td>
+      <td>${escapeHtml(m.RequestedBy) || '—'}</td>
+      <td class="rsc-num">${formatNumber(m.OpeningKM)}</td>
+      <td class="rsc-num">${m.Status==='Completed' ? formatNumber(m.ClosingKM) : '—'}</td>
+      <td class="rsc-num"><strong>${m.Status==='Completed' ? formatNumber(m.TotalKM) : '—'}</strong></td>
+      <td><span class="rsc-status rsc-status-${m.Status==='Completed'?'ok':'wip'}">${m.Status}</span></td>
+      <td>${escapeHtml(m.PurposePlace)}</td>
+      <td>${escapeHtml(m.PermittedBy) || '—'}</td>
+    </tr>`).join('');
+  card.innerHTML = `
+    <div class="sc-head">
+      <div class="sc-unit">03 BN NDRF, MUNDALI</div>
+      <div class="sc-sub">MT Ops Report</div>
+    </div>
+    <div class="rsc-meta">
+      <div><span>Date Range</span><strong>${formatDateDMY(f.from)} → ${formatDateDMY(f.to)}</strong></div>
+      <div><span>Vehicle</span><strong>${f.vehicle === 'ALL' ? 'All Vehicles' : escapeHtml(f.vehicle)}</strong></div>
+      <div><span>Trips</span><strong>${rows.length}</strong></div>
+      <div><span>Vehicles Used</span><strong>${vehiclesUsed}</strong></div>
+      <div><span>Total KM</span><strong>${fmtKm(totalKm)}</strong></div>
+    </div>
+    <table class="rsc-table">
+      <thead>
+        <tr>
+          <th>#</th><th>Date</th><th>Out</th><th>In</th><th>Vehicle</th><th>Type</th>
+          <th>Driver</th><th>Requested By</th><th>Open KM</th><th>Close KM</th><th>Total</th>
+          <th>Status</th><th>Purpose</th><th>Permitted By</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot>
+        <tr>
+          <td colspan="10">Total</td>
+          <td class="rsc-num"><strong>${formatNumber(totalKm)}</strong></td>
+          <td colspan="3"></td>
+        </tr>
+      </tfoot>
+    </table>
+    <div class="rsc-foot">
+      Generated by ${escapeHtml(App.user.DisplayName)} · ${formatDateTime(new Date().toISOString())}
+    </div>`;
+  return card;
+}
+
+function buildDashboardShareCard(f, rows, days, activeDriver, totalKm, vehiclesUsed){
+  const card = document.createElement('div');
+  card.className = 'share-card dashboard-share-card';
+  card.style.position = 'absolute';
+  card.style.left = '-9999px';
+  card.style.top = '0';
+  const maxDay = Math.max(1, ...days.map(d => d.value));
+  const daysHtml = days.map(d => {
+    const h = Math.max(4, Math.round((d.value / maxDay) * 140));
+    return `<div class="dsc-bar-col">
+      <div class="dsc-bar-val">${d.value ? formatNumber(d.value) : ''}</div>
+      <div class="dsc-bar" style="height:${h}px"></div>
+      <div class="dsc-bar-lbl">${d.label}</div>
+    </div>`;
+  }).join('');
+  // Top vehicles for context
+  const byVehicle = {};
+  rows.forEach(m => { byVehicle[m.RegistrationNo] = (byVehicle[m.RegistrationNo] || 0) + Number(m.TotalKM||0); });
+  const topVehicles = Object.entries(byVehicle)
+    .map(([reg, km]) => ({ reg, km, type: DB.findVehicle(reg)?.VehicleType || '' }))
+    .sort((a,b) => b.km - a.km).slice(0, 6);
+  const maxKm = Math.max(1, ...topVehicles.map(v => v.km));
+  const topHtml = topVehicles.length ? topVehicles.map(v => {
+    const w = Math.max(6, Math.round((v.km / maxKm) * 100));
+    return `<div class="dsc-rank">
+      <div class="dsc-rank-name"><strong>${escapeHtml(v.reg)}</strong><span>${escapeHtml(v.type)}</span></div>
+      <div class="dsc-rank-track"><div class="dsc-rank-fill" style="width:${w}%"></div></div>
+      <div class="dsc-rank-val">${formatNumber(v.km)} km</div>
+    </div>`;
+  }).join('') : `<div class="dsc-empty">No trips in range.</div>`;
+
+  card.innerHTML = `
+    <div class="sc-head">
+      <div class="sc-unit">03 BN NDRF, MUNDALI</div>
+      <div class="sc-sub">MT Ops Dashboard</div>
+    </div>
+    <div class="rsc-meta">
+      <div><span>Date Range</span><strong>${formatDateDMY(f.from)} → ${formatDateDMY(f.to)}</strong></div>
+      <div><span>Vehicle</span><strong>${f.vehicle === 'ALL' ? 'All Vehicles' : escapeHtml(f.vehicle)}</strong></div>
+      ${activeDriver ? `<div><span>Driver</span><strong>${escapeHtml(activeDriver)}</strong></div>` : ''}
+    </div>
+    <div class="dsc-kpis">
+      <div class="dsc-kpi"><div class="dsc-kpi-lbl">Total Vehicles</div><div class="dsc-kpi-val">${DB.vehicles.length}</div><div class="dsc-kpi-sub">Registered in fleet</div></div>
+      <div class="dsc-kpi"><div class="dsc-kpi-lbl">Vehicles Used</div><div class="dsc-kpi-val">${vehiclesUsed}</div><div class="dsc-kpi-sub">In selected range</div></div>
+      <div class="dsc-kpi"><div class="dsc-kpi-lbl">Total Trips</div><div class="dsc-kpi-val">${rows.length}</div><div class="dsc-kpi-sub">Movement entries</div></div>
+      <div class="dsc-kpi"><div class="dsc-kpi-lbl">Total KM</div><div class="dsc-kpi-val">${formatNumber(totalKm)}</div><div class="dsc-kpi-sub">km in range</div></div>
+    </div>
+    <div class="dsc-cols">
+      <div class="dsc-section">
+        <div class="dsc-section-title">Daily KM (Last 7 Days)</div>
+        <div class="dsc-bar-wrap">${daysHtml}</div>
+      </div>
+      <div class="dsc-section">
+        <div class="dsc-section-title">Top Vehicles by Distance</div>
+        <div class="dsc-rank-wrap">${topHtml}</div>
+      </div>
+    </div>
+    <div class="rsc-foot">
+      Generated by ${escapeHtml(App.user.DisplayName)} · ${formatDateTime(new Date().toISOString())}
+    </div>`;
+  return card;
 }
 
 function exportReportXlsx(f, rows){
