@@ -768,12 +768,12 @@ function renderAllMovementsPage(container){
       </div>
       <div class="card-pad">
         <div class="filter-bar">
-          <div class="field grow"><label>Search</label><div class="input-icon">${icon('search')}<input type="search" id="am-search" placeholder="Driver, requested by, purpose…" value="${escapeHtml(f.search)}"></div></div>
+          <div class="field grow"><label>Search</label><div class="input-icon">${icon('search')}<input type="search" id="am-search" placeholder="Search entries…" value="${escapeHtml(f.search)}"></div></div>
           <div class="field"><label>From Date</label><input type="date" id="am-from" value="${f.from}"></div>
           <div class="field"><label>To Date</label><input type="date" id="am-to" value="${f.to}"></div>
           <div class="field"><label>Vehicle</label>${buildSearchableSelect({ id:'am-vehicle', options:vehicleSelectOptions({includeAll:true}), value:f.vehicle||'ALL', placeholder:'All Vehicles' })}</div>
-          <div class="field"><label>Driver Name</label><input type="search" id="am-driver" placeholder="Filter by driver…" value="${escapeHtml(f.driver||'')}"></div>
-          ${isAdminUser ? `<div class="field"><label>Force No.</label><input type="search" id="am-forceno" placeholder="Filter by force no.…" value="${escapeHtml(f.forceNo||'')}"></div>` : ''}
+          <div class="field"><label>Driver Name</label><input type="search" id="am-driver" placeholder="Driver…" value="${escapeHtml(f.driver||'')}"></div>
+          ${isAdminUser ? `<div class="field"><label>Force No.</label><input type="search" id="am-forceno" placeholder="Force no.…" value="${escapeHtml(f.forceNo||'')}"></div>` : ''}
           <div class="actions"><button class="btn btn-outline" id="am-clear" type="button">Clear</button></div>
         </div>
         <div class="table-wrap cards-sm"><table class="data-table">
@@ -1128,16 +1128,14 @@ function renderAuditPage(container){
   const f = App.filters.audit;
   container.innerHTML = `
     <div class="card">
-      <div class="card-head" style="flex-wrap:wrap;gap:10px">
-        <div class="input-icon" style="flex:1;min-width:220px">${icon('search')}<input type="search" id="au-search" placeholder="Search user, action, or record…" value="${escapeHtml(f.search)}"></div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-          <div class="field" style="margin:0"><label>From Date</label><input type="date" id="au-from" value="${f.from}"></div>
-          <div class="field" style="margin:0"><label>To Date</label><input type="date" id="au-to" value="${f.to}"></div>
-          <button class="btn btn-outline btn-sm" id="au-clear" type="button">Clear</button>
-        </div>
-      </div>
       <div class="card-pad">
-        <div class="table-wrap"><table class="data-table">
+        <div class="filter-bar" style="margin-bottom:14px">
+          <div class="field grow"><label>Search</label><div class="input-icon">${icon('search')}<input type="search" id="au-search" placeholder="Search log…" value="${escapeHtml(f.search)}"></div></div>
+          <div class="field"><label>From Date</label><input type="date" id="au-from" value="${f.from}"></div>
+          <div class="field"><label>To Date</label><input type="date" id="au-to" value="${f.to}"></div>
+          <div class="actions"><button class="btn btn-outline" id="au-clear" type="button">Clear</button></div>
+        </div>
+        <div class="table-wrap cards-sm"><table class="data-table">
           <thead><tr><th>#</th><th>Timestamp</th><th>User</th><th>Action</th><th>Record</th><th>Details</th></tr></thead>
           <tbody id="au-tbody"></tbody>
         </table></div>
@@ -1165,12 +1163,12 @@ function renderAuditPage(container){
     $('#au-empty').innerHTML = info.total ? '' : `<div class="empty-state">${icon('clock')}<div>No audit entries match your filters.</div></div>`;
     $('#au-tbody').innerHTML = info.rows.map((a, i) => `
       <tr>
-        <td class="cell-muted">${info.start + i + 1}</td>
-        <td class="tabular">${formatDateTime(a.Timestamp)}</td>
-        <td>${escapeHtml(a.User)}</td>
-        <td>${actionBadge(a.Action)}</td>
-        <td>${escapeHtml(a.RecordType)}${a.RecordId && a.RecordId !== '-' ? ` · ${escapeHtml(a.RecordId)}` : ''}</td>
-        <td class="cell-muted">${escapeHtml(a.Details)}</td>
+        <td class="cell-muted" data-label="#">${info.start + i + 1}</td>
+        <td class="tabular" data-label="Timestamp">${formatDateTime(a.Timestamp)}</td>
+        <td data-label="User">${escapeHtml(a.User)}</td>
+        <td data-label="Action">${actionBadge(a.Action)}</td>
+        <td data-label="Record">${escapeHtml(a.RecordType)}${a.RecordId && a.RecordId !== '-' ? ` · ${escapeHtml(a.RecordId)}` : ''}</td>
+        <td class="cell-muted" data-label="Details">${escapeHtml(a.Details)}</td>
       </tr>`).join('');
     $('#au-pagination').innerHTML = paginationHtml(info);
     wirePagination($('#au-pagination'), (p) => { f.page = p; renderTable(); });
@@ -1232,7 +1230,7 @@ function renderSettingsPage(container){
           <div class="field"><label>Role</label><select id="usr-role"><option value="ALL">All Roles</option><option value="Admin">Admin</option><option value="Operator">Operator</option></select></div>
           <div class="field"><label>Status</label><select id="usr-status"><option value="ALL">All Status</option><option value="Active">Active</option><option value="Inactive">Inactive</option></select></div>
         </div>
-        <div class="table-wrap"><table class="data-table">
+        <div class="table-wrap cards-sm"><table class="data-table">
           <thead><tr><th>Username</th><th>Display Name</th><th>Force No.</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody id="user-tbody"></tbody>
         </table></div>
@@ -1338,11 +1336,11 @@ function renderSettingsPage(container){
         const isActive = String(u.Active).toLowerCase() === 'yes';
         return `
         <tr>
-          <td><strong>${escapeHtml(u.Username)}</strong></td>
-          <td>${escapeHtml(u.DisplayName)}</td>
-          <td class="cell-muted">${escapeHtml(u.ForceNo || u.Username)}</td>
-          <td>${escapeHtml(u.Role)}</td>
-          <td><span class="badge ${isActive?'badge-good':'badge-muted'}">${isActive?'Active':'Inactive'}</span></td>
+          <td data-label="Username"><strong>${escapeHtml(u.Username)}</strong></td>
+          <td data-label="Display Name">${escapeHtml(u.DisplayName)}</td>
+          <td class="cell-muted" data-label="Force No.">${escapeHtml(u.ForceNo || u.Username)}</td>
+          <td data-label="Role">${escapeHtml(u.Role)}</td>
+          <td data-label="Status"><span class="badge ${isActive?'badge-good':'badge-muted'}">${isActive?'Active':'Inactive'}</span></td>
           <td class="row-actions">
             <button class="icon-btn" data-uedit="${u.Username}" title="Edit user" type="button">${icon('edit')}</button>
             <button class="icon-btn" data-ureset="${u.Username}" title="Reset password" type="button">${icon('lockReset')}</button>
