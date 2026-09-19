@@ -246,6 +246,23 @@ table.data-table{ width:100%; border-collapse:collapse; min-width:640px; }
 .data-table td{ padding:12px 14px; border-bottom:1px solid var(--border); font-size:13.5px; vertical-align:middle; }
 .data-table tbody tr:hover{ background:#f8fafd; }
 .data-table tfoot td{ font-weight:700; background:#fafbfd; }
+.report-table th, .report-table td{ white-space:nowrap; vertical-align:middle; }
+.report-table th.wrap, .report-table td.wrap{ white-space:normal; word-break:break-word; max-width:220px; }
+.report-table th.sortable{ cursor:pointer; user-select:none; }
+.report-table th.sortable:hover{ color:var(--text-primary); background:#f2f5fa; }
+.report-table th.sortable.active{ color:var(--brand); }
+.active-filter-chip{
+  display:inline-flex; align-items:center; gap:8px;
+  background:var(--brand-bg); color:var(--brand);
+  padding:6px 8px 6px 12px; border-radius:999px;
+  font-size:13px; margin:0 0 12px;
+}
+.active-filter-chip .chip-x{
+  background:transparent; border:none; color:var(--brand);
+  font-size:18px; line-height:1; cursor:pointer;
+  padding:0 6px; border-radius:999px;
+}
+.active-filter-chip .chip-x:hover{ background:rgba(0,0,0,.06); }
 .cell-muted{ color:var(--text-muted); }
 .row-actions{ display:flex; gap:4px; }
 .icon-btn{

@@ -1,11 +1,13 @@
 /* App shell: boot, auth, routing, top-level chrome. Page bodies live in pages.js */
 
 function makeDefaultFilters(){
+  const from7 = addDaysISO(todayISO(), -6);
   return {
-    dashboard: { from: todayISO(), to: todayISO(), vehicle: 'ALL' },
+    dashboard: { from: from7, to: todayISO(), vehicle: 'ALL', driver: 'ALL' },
     movements: { view: 'form', search: '', from: '', to: '', vehicle: 'ALL', driver: '', forceNo: '', requestedBy: '', page: 1, editingId: null },
+    allMovements: { search: '', from: '', to: '', vehicle: 'ALL', driver: '', forceNo: '', page: 1 },
     vehicles: { search: '', status: 'ALL', page: 1 },
-    reports: { from: todayISO(), to: todayISO(), vehicle: 'ALL', generated: false },
+    reports: { from: from7, to: todayISO(), vehicle: 'ALL', generated: false, sortKey: 'Date', sortDir: 'desc' },
     audit: { search: '', from: '', to: '', page: 1 },
   };
 }
@@ -23,6 +25,7 @@ const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: 'home', roles: ['Admin'] },
   { id: 'vehicles', label: 'Vehicles', icon: 'car', roles: ['Admin'] },
   { id: 'movements', label: 'Movement Entries', icon: 'doc', roles: ['Admin', 'Operator'] },
+  { id: 'all-movements', label: 'All Movement Entries', icon: 'list', roles: ['Admin', 'Operator'] },
   { id: 'reports', label: 'Reports', icon: 'list', roles: ['Admin'] },
   { id: 'audit', label: 'Audit Log', icon: 'clock', roles: ['Admin'] },
   { id: 'settings', label: 'Settings', icon: 'gear', roles: ['Admin', 'Operator'], operatorHiddenInNav: true },
@@ -248,6 +251,7 @@ function renderPage(route){
     dashboard: renderDashboardPage,
     vehicles: renderVehiclesPage,
     movements: renderMovementsPage,
+    'all-movements': renderAllMovementsPage,
     reports: renderReportsPage,
     audit: renderAuditPage,
     settings: renderSettingsPage,

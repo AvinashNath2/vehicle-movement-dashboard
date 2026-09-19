@@ -21,51 +21,99 @@ function actionBadge(action){
 
 /* ============================== DASHBOARD ============================== */
 
+function driverPickerOptions(){
+  const opts = [{ value: 'ALL', label: 'All Drivers' }];
+  const userOpts = DB.users.map(u => ({
+    value: 'user:' + u.Username,
+    label: `${u.DisplayName} · ${u.ForceNo || u.Username}`,
+  }));
+  const covered = new Set(DB.users.map(u => (u.DisplayName || '').toLowerCase()));
+  const nameOpts = Array.from(new Set(DB.movements.map(m => m.DriverName).filter(Boolean)))
+    .filter(n => !covered.has(n.toLowerCase()))
+    .map(n => ({ value: 'name:' + n, label: n }));
+  const rest = [...userOpts, ...nameOpts].sort((a,b) => a.label.localeCompare(b.label));
+  return opts.concat(rest);
+}
+
+function applyDriverFilter(rows, driver){
+  if (!driver || driver === 'ALL') return rows;
+  if (driver.startsWith('user:')){
+    const u = driver.slice(5);
+    return rows.filter(m => m.CreatedBy === u);
+  }
+  if (driver.startsWith('name:')){
+    const n = driver.slice(5).toLowerCase();
+    return rows.filter(m => (m.DriverName||'').toLowerCase() === n);
+  }
+  const n = driver.toLowerCase();
+  return rows.filter(m => (m.DriverName||'').toLowerCase() === n);
+}
+
+function driverLabel(driver){
+  if (!driver || driver === 'ALL') return '';
+  const opt = driverPickerOptions().find(o => o.value === driver);
+  return opt ? opt.label : driver;
+}
+
 function renderDashboardPage(container){
   const f = App.filters.dashboard;
+  const activeDriver = driverLabel(f.driver);
   container.innerHTML = `
     <div class="card card-pad filter-bar">
       <div class="field"><label>From Date</label><input type="date" id="db-from" value="${f.from}"></div>
       <div class="field"><label>To Date</label><input type="date" id="db-to" value="${f.to}"></div>
-      <div class="field grow"><label>Vehicle</label>
+      <div class="field"><label>Vehicle</label>
         ${buildSearchableSelect({ id:'db-vehicle', options:vehicleSelectOptions({includeAll:true}), value:f.vehicle||'ALL', placeholder:'All Vehicles' })}
+      </div>
+      <div class="field grow"><label>Driver</label>
+        ${buildSearchableSelect({ id:'db-driver', options:driverPickerOptions(), value:f.driver||'ALL', placeholder:'All Drivers' })}
       </div>
       <div class="actions">
         <button class="btn btn-primary" id="db-apply" type="button">Apply</button>
         <button class="btn btn-outline" id="db-clear" type="button">Clear</button>
+        <button class="btn btn-outline" id="db-share" type="button">${icon('share')} Share as Image</button>
       </div>
     </div>
 
-    <div class="stat-grid" id="stat-grid"></div>
+    <div id="dashboard-capture">
+      ${activeDriver ? `<div class="active-filter-chip"><span>Driver: <strong>${escapeHtml(activeDriver)}</strong></span><button class="chip-x" id="db-driver-clear" title="Clear driver filter" type="button">×</button></div>` : ''}
+      <div class="stat-grid" id="stat-grid"></div>
 
-    <div class="dash-grid">
-      <div class="card">
-        <div class="card-head"><h2>Daily KM Movement (Last 7 Days)</h2></div>
-        <div class="chart-wrap" id="daily-chart"></div>
-      </div>
-      <div class="card">
-        <div class="card-head">
-          <h2>Top Vehicles by Distance</h2>
-          <a href="#" id="view-all-top" class="link">View All</a>
+      <div class="dash-grid">
+        <div class="card">
+          <div class="card-head"><h2>Daily KM Movement (Last 7 Days)</h2></div>
+          <div class="chart-wrap" id="daily-chart"></div>
         </div>
-        <div class="card-pad" id="top-vehicles-list"></div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Top Vehicles by Distance</h2>
+            <a href="#" id="view-all-top" class="link">View All</a>
+          </div>
+          <div class="card-pad" id="top-vehicles-list"></div>
+        </div>
       </div>
     </div>
   `;
 
   wireSearchableSelect('db-vehicle');
+  wireSearchableSelect('db-driver');
   $('#db-apply').addEventListener('click', () => {
     f.from = $('#db-from').value || todayISO();
     f.to = $('#db-to').value || todayISO();
     f.vehicle = $('#db-vehicle').value;
+    f.driver = $('#db-driver').value || 'ALL';
     renderDashboardPage(container);
   });
   $('#db-clear').addEventListener('click', () => {
-    App.filters.dashboard = { from: todayISO(), to: todayISO(), vehicle: 'ALL' };
+    App.filters.dashboard = { from: addDaysISO(todayISO(), -6), to: todayISO(), vehicle: 'ALL', driver: 'ALL' };
+    renderDashboardPage(container);
+  });
+  $('#db-driver-clear')?.addEventListener('click', () => {
+    f.driver = 'ALL';
     renderDashboardPage(container);
   });
 
-  const inRange = DB.movementsInRange(f.from, f.to, f.vehicle);
+  const inRange = applyDriverFilter(DB.movementsInRange(f.from, f.to, f.vehicle), f.driver);
   const vehiclesUsed = new Set(inRange.map(m => m.RegistrationNo)).size;
   const totalKm = inRange.reduce((s,m) => s + Number(m.TotalKM||0), 0);
   const sameDay = f.from === f.to;
@@ -77,11 +125,12 @@ function renderDashboardPage(container){
     ${statCard('route', 'orange', 'Total KM Travelled', formatNumber(totalKm), sameDay ? 'km on selected date' : 'km in selected range')}
   `;
 
-  // last 7 days, always anchored to real "today" regardless of filters
+  // last 7 days, always anchored to real "today" regardless of filters (driver filter still applies)
   const days = [];
   for (let i = 6; i >= 0; i--){
     const d = addDaysISO(todayISO(), -i);
-    const sum = DB.movements.filter(m => m.Date === d).reduce((s,m) => s + Number(m.TotalKM||0), 0);
+    const dayRows = applyDriverFilter(DB.movements.filter(m => m.Date === d), f.driver);
+    const sum = dayRows.reduce((s,m) => s + Number(m.TotalKM||0), 0);
     days.push({ dateISO: d, label: formatDateShort(d), value: sum });
   }
   renderDailyKmChart($('#daily-chart'), days);
@@ -94,6 +143,51 @@ function renderDashboardPage(container){
       large: true,
       bodyHtml: `<div id="top-vehicles-full"></div>`,
       onMount: (m) => renderTopVehicles($('#top-vehicles-full', m), inRange, 999),
+    });
+  });
+
+  $('#db-share').addEventListener('click', async () => {
+    const cap = $('#dashboard-capture');
+    if (!cap){ toast('error', 'Nothing to share', 'Dashboard not ready.'); return; }
+    const btn = $('#db-share');
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner"></span> Capturing…`;
+    let imgSrc = null;
+    try {
+      if (typeof html2canvas !== 'undefined'){
+        const canvas = await html2canvas(cap, { scale: 2, backgroundColor: '#fff', logging: false });
+        imgSrc = canvas.toDataURL('image/png');
+      }
+    } catch(e){ console.warn('html2canvas:', e); }
+    finally { btn.disabled = false; btn.innerHTML = `${icon('share')} Share as Image`; }
+    if (!imgSrc){ toast('error', 'Image capture failed', 'Check console for details.'); return; }
+    openModal({
+      title: 'Share Dashboard as Image',
+      large: true,
+      bodyHtml: `<img src="${imgSrc}" style="width:100%;border-radius:8px;border:1px solid var(--border);display:block">`,
+      footerHtml: `
+        <button class="btn btn-outline" data-close-modal type="button">Close</button>
+        <button class="btn btn-outline btn-sm" id="db-img-dl" type="button">${icon('download')} Download PNG</button>
+        <button class="btn btn-sm" style="background:#25D366;color:#fff;border:none" id="db-img-wa" type="button">${icon('share')} WhatsApp</button>`,
+      onMount: (bd) => {
+        $('#db-img-dl', bd).addEventListener('click', () => {
+          const a = document.createElement('a'); a.href = imgSrc;
+          a.download = `Vehicle_Dashboard_${f.from}_to_${f.to}.png`; a.click();
+        });
+        $('#db-img-wa', bd).addEventListener('click', async () => {
+          if (imgSrc && navigator.share && navigator.canShare){
+            try {
+              const res = await fetch(imgSrc); const blob = await res.blob();
+              const file = new File([blob], `Dashboard_${f.from}_to_${f.to}.png`, { type:'image/png' });
+              if (navigator.canShare({ files:[file] })){ await navigator.share({ files:[file], title:'Vehicle Movement Dashboard' }); return; }
+            } catch(e){ /* fall through */ }
+          }
+          const parts = [`*03 BN NDRF — Vehicle Movement Dashboard*`, `Date: ${formatDateDMY(f.from)} to ${formatDateDMY(f.to)}`];
+          if (f.vehicle && f.vehicle !== 'ALL') parts.push(`Vehicle: ${f.vehicle}`);
+          if (activeDriver) parts.push(`Driver: ${activeDriver}`);
+          window.open(`https://wa.me/?text=${encodeURIComponent(parts.join('\n'))}`, '_blank');
+        });
+      },
     });
   });
 }
@@ -664,6 +758,101 @@ function renderMovementList(container){
   renderTable();
 }
 
+function renderAllMovementsPage(container){
+  const f = App.filters.allMovements;
+  const isAdminUser = App.user.Role === 'Admin';
+  container.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <h2>All Movement Entries</h2>
+      </div>
+      <div class="card-pad">
+        <div class="filter-bar">
+          <div class="field grow"><label>Search</label><div class="input-icon">${icon('search')}<input type="search" id="am-search" placeholder="Driver, requested by, purpose…" value="${escapeHtml(f.search)}"></div></div>
+          <div class="field"><label>From Date</label><input type="date" id="am-from" value="${f.from}"></div>
+          <div class="field"><label>To Date</label><input type="date" id="am-to" value="${f.to}"></div>
+          <div class="field"><label>Vehicle</label>${buildSearchableSelect({ id:'am-vehicle', options:vehicleSelectOptions({includeAll:true}), value:f.vehicle||'ALL', placeholder:'All Vehicles' })}</div>
+          <div class="field"><label>Driver Name</label><input type="search" id="am-driver" placeholder="Filter by driver…" value="${escapeHtml(f.driver||'')}"></div>
+          ${isAdminUser ? `<div class="field"><label>Force No.</label><input type="search" id="am-forceno" placeholder="Filter by force no.…" value="${escapeHtml(f.forceNo||'')}"></div>` : ''}
+          <div class="actions"><button class="btn btn-outline" id="am-clear" type="button">Clear</button></div>
+        </div>
+        <div class="table-wrap cards-sm"><table class="data-table">
+          <thead><tr><th>Date</th><th>Vehicle</th><th>Driver</th><th>Requested By</th><th>Opening KM</th><th>Closing KM</th><th>Total KM</th><th>Status</th><th>Purpose</th><th>Actions</th></tr></thead>
+          <tbody id="am-tbody"></tbody>
+        </table></div>
+        <div id="am-empty"></div>
+        <div id="am-pagination"></div>
+      </div>
+    </div>`;
+
+  $('#am-search').addEventListener('input', debounce(() => { f.search = $('#am-search').value; f.page = 1; renderTable(); }, 200));
+  $('#am-from').addEventListener('change', () => { f.from = $('#am-from').value; f.page = 1; renderTable(); });
+  $('#am-to').addEventListener('change', () => { f.to = $('#am-to').value; f.page = 1; renderTable(); });
+  wireSearchableSelect('am-vehicle', (val) => { f.vehicle = val; f.page = 1; renderTable(); });
+  $('#am-driver').addEventListener('input', debounce(() => { f.driver = $('#am-driver').value; f.page = 1; renderTable(); }, 200));
+  if (isAdminUser){
+    $('#am-forceno').addEventListener('input', debounce(() => { f.forceNo = $('#am-forceno').value; f.page = 1; renderTable(); }, 200));
+  }
+  $('#am-clear').addEventListener('click', () => {
+    Object.assign(f, { search:'', from:'', to:'', vehicle:'ALL', driver:'', forceNo:'', page:1 });
+    renderPage('all-movements');
+  });
+
+  function renderTable(){
+    const q = f.search.trim().toLowerCase();
+    const drv = (f.driver || '').trim().toLowerCase();
+    const fno = (f.forceNo || '').trim().toLowerCase();
+    const base = isAdminUser ? DB.movements : DB.movements.filter(m => m.CreatedBy === App.user.Username);
+    let rows = base.filter(m => {
+      if (f.from && m.Date < f.from) return false;
+      if (f.to && m.Date > f.to) return false;
+      if (f.vehicle !== 'ALL' && m.RegistrationNo !== f.vehicle) return false;
+      if (drv && !m.DriverName.toLowerCase().includes(drv)) return false;
+      if (isAdminUser && fno){
+        const match = DB.users.find(u => (u.ForceNo || u.Username).toLowerCase() === fno);
+        if (!match || m.CreatedBy !== match.Username) return false;
+      }
+      if (q && !(`${m.DriverName} ${m.RequestedBy} ${m.PurposePlace} ${m.RegistrationNo}`.toLowerCase().includes(q))) return false;
+      return true;
+    }).sort((a,b) => b.Date.localeCompare(a.Date) || b.ID.localeCompare(a.ID));
+
+    const info = paginate(rows, f.page, 10);
+    $('#am-empty').innerHTML = info.total ? '' : `<div class="empty-state">${icon('doc')}<div>No movement entries match your filters.</div></div>`;
+    $('#am-tbody').innerHTML = info.rows.map(m => `
+      <tr>
+        <td class="tabular" data-label="Date">${formatDateDMY(m.Date)}</td>
+        <td data-label="Vehicle"><strong>${escapeHtml(m.RegistrationNo)}</strong><div class="cell-muted" style="font-size:11.5px">${escapeHtml(m.VehicleType)}</div></td>
+        <td data-label="Driver">${escapeHtml(m.DriverName)}${isAdminUser ? `<div class="cell-muted" style="font-size:11.5px">by ${escapeHtml(m.CreatedBy)}</div>` : ''}</td>
+        <td data-label="Requested By">${escapeHtml(m.RequestedBy) || '—'}</td>
+        <td class="tabular" data-label="Opening KM">${formatNumber(m.OpeningKM)}</td>
+        <td class="tabular" data-label="Closing KM">${m.Status === 'Completed' ? formatNumber(m.ClosingKM) : '—'}</td>
+        <td class="tabular" data-label="Total KM"><strong>${m.Status === 'Completed' ? formatNumber(m.TotalKM) : '—'}</strong></td>
+        <td data-label="Status">${statusBadge(m)}</td>
+        <td data-label="Purpose" title="${escapeHtml(m.PurposePlace)}" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(m.PurposePlace)}</td>
+        <td class="row-actions">
+          <button class="icon-btn" data-view="${m.ID}" title="View details" type="button">${icon('eye')}</button>
+          ${canManageMovement(m) && m.Status !== 'Completed' ? `<button class="icon-btn" data-close="${m.ID}" title="Close" type="button">${icon('check')}</button>` : ''}
+          <button class="icon-btn" data-share="${m.ID}" title="Share" type="button">${icon('share')}</button>
+          ${canManageMovement(m) ? `<button class="icon-btn" data-edit="${m.ID}" title="Edit" type="button">${icon('edit')}</button>` : ''}
+          ${canManageMovement(m) ? `<button class="icon-btn danger" data-del="${m.ID}" title="Delete" type="button">${icon('trash')}</button>` : ''}
+        </td>
+      </tr>`).join('');
+    $('#am-pagination').innerHTML = paginationHtml(info);
+    wirePagination($('#am-pagination'), (p) => { f.page = p; renderTable(); });
+
+    $$('#am-tbody [data-view]').forEach(b => b.addEventListener('click', () => openMovementDetailModal(b.dataset.view)));
+    $$('#am-tbody [data-close]').forEach(b => b.addEventListener('click', () => openCloseMovementModal(b.dataset.close)));
+    $$('#am-tbody [data-share]').forEach(b => b.addEventListener('click', () => openShareModal(b.dataset.share)));
+    $$('#am-tbody [data-edit]').forEach(b => b.addEventListener('click', () => {
+      App.filters.movements.editingId = b.dataset.edit;
+      App.filters.movements.view = 'form';
+      renderPage('movements');
+    }));
+    $$('#am-tbody [data-del]').forEach(b => b.addEventListener('click', () => confirmDeleteMovement(DB.getMovement(b.dataset.del), renderTable)));
+  }
+  renderTable();
+}
+
 function openMovementDetailModal(id){
   const m = DB.getMovement(id);
   if (!m) return;
@@ -738,8 +927,43 @@ function renderReportsPage(container){
     renderReportBody();
   });
 
+  const REPORT_COLUMNS = [
+    { key: null,             label: '#',            cls: 'tabular cell-muted', render: (m,i) => i+1 },
+    { key: 'Date',           label: 'Date',         cls: 'tabular',            render: m => formatDateDMY(m.Date) },
+    { key: 'OpeningTime',    label: 'Out Time',     cls: 'tabular',            render: m => m.OpeningTime ? formatTime(m.OpeningTime) : '—' },
+    { key: 'ClosingTime',    label: 'In Time',      cls: 'tabular',            render: m => m.Status==='Completed'&&m.ClosingTime ? formatTime(m.ClosingTime) : '—' },
+    { key: 'RegistrationNo', label: 'Vehicle',      cls: '',                   render: m => escapeHtml(m.RegistrationNo) },
+    { key: 'VehicleType',    label: 'Type',         cls: '',                   render: m => escapeHtml(m.VehicleType) },
+    { key: 'DriverName',     label: 'Driver',       cls: '',                   render: m => escapeHtml(m.DriverName) },
+    { key: 'RequestedBy',    label: 'Requested By', cls: '',                   render: m => escapeHtml(m.RequestedBy) },
+    { key: 'OpeningKM',      label: 'Opening KM',   cls: 'tabular', num: true, render: m => formatNumber(m.OpeningKM) },
+    { key: 'ClosingKM',      label: 'Closing KM',   cls: 'tabular', num: true, render: m => m.Status === 'Completed' ? formatNumber(m.ClosingKM) : '—' },
+    { key: 'TotalKM',        label: 'Total KM',     cls: 'tabular', num: true, render: m => m.Status === 'Completed' ? formatNumber(m.TotalKM) : '—' },
+    { key: 'Status',         label: 'Status',       cls: '',                   render: m => statusBadge(m) },
+    { key: 'PurposePlace',   label: 'Purpose',      cls: 'wrap',               render: m => escapeHtml(m.PurposePlace) },
+    { key: 'PermittedBy',    label: 'Permitted By', cls: 'wrap',               render: m => escapeHtml(m.PermittedBy) },
+  ];
+
+  function sortRows(rows, key, dir){
+    if (!key) return rows;
+    const col = REPORT_COLUMNS.find(c => c.key === key);
+    const num = col && col.num;
+    const sign = dir === 'desc' ? -1 : 1;
+    return rows.slice().sort((a,b) => {
+      const av = a[key], bv = b[key];
+      const aEmpty = av === undefined || av === null || av === '';
+      const bEmpty = bv === undefined || bv === null || bv === '';
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      if (num) return sign * (Number(av) - Number(bv));
+      return sign * String(av).localeCompare(String(bv));
+    });
+  }
+
   function currentRows(){
-    return DB.movementsInRange(f.from, f.to, f.vehicle).slice().sort((a,b) => a.Date.localeCompare(b.Date));
+    const inRange = DB.movementsInRange(f.from, f.to, f.vehicle);
+    return sortRows(inRange, f.sortKey, f.sortDir);
   }
 
   function renderReportBody(){
@@ -750,6 +974,22 @@ function renderReportsPage(container){
     $('#rp-heading').textContent = `Report: ${formatDateDMY(f.from)} to ${formatDateDMY(f.to)}`;
     $('#rp-export').hidden = false;
 
+    const headHtml = REPORT_COLUMNS.map(c => {
+      if (!c.key) return `<th class="${c.cls||''}">${c.label}</th>`;
+      const active = c.key === f.sortKey;
+      const arrow = active ? (f.sortDir === 'desc' ? ' ▼' : ' ▲') : '';
+      const wrapCls = c.cls === 'wrap' ? ' wrap' : '';
+      return `<th class="sortable${wrapCls}${active?' active':''}" data-sort="${c.key}">${c.label}${arrow}</th>`;
+    }).join('');
+
+    const bodyHtml = rows.map((m, i) => `<tr>${
+      REPORT_COLUMNS.map(c => `<td class="${c.cls||''}">${c.render(m, i)}</td>`).join('')
+    }</tr>`).join('');
+
+    const totalKmColIdx = REPORT_COLUMNS.findIndex(c => c.key === 'TotalKM');
+    const beforeTotal = totalKmColIdx;
+    const afterTotal = REPORT_COLUMNS.length - totalKmColIdx - 1;
+
     $('#rp-body').innerHTML = !rows.length
       ? `<div class="empty-state">${icon('doc')}<div>No movement records found for this selection.</div></div>`
       : `
@@ -757,28 +997,22 @@ function renderReportsPage(container){
           <strong>${rows.length}</strong> trip(s) · <strong>${vehiclesUsed}</strong> vehicle(s) used · <strong>${fmtKm(totalKm)}</strong> total ·
           generated by ${escapeHtml(App.user.DisplayName)} on ${formatDateTime(new Date().toISOString())}
         </div>
-        <div class="table-wrap"><table class="data-table">
-          <thead><tr><th>#</th><th>Date</th><th>Out Time</th><th>In Time</th><th>Vehicle</th><th>Type</th><th>Driver</th><th>Requested By</th><th>Opening KM</th><th>Closing KM</th><th>Total KM</th><th>Status</th><th>Purpose</th><th>Permitted By</th></tr></thead>
-          <tbody>
-            ${rows.map((m, i) => `<tr>
-              <td class="tabular cell-muted">${i+1}</td>
-              <td class="tabular">${formatDateDMY(m.Date)}</td>
-              <td class="tabular">${m.OpeningTime ? formatTime(m.OpeningTime) : '—'}</td>
-              <td class="tabular">${m.Status==='Completed'&&m.ClosingTime ? formatTime(m.ClosingTime) : '—'}</td>
-              <td>${escapeHtml(m.RegistrationNo)}</td>
-              <td>${escapeHtml(m.VehicleType)}</td>
-              <td>${escapeHtml(m.DriverName)}</td>
-              <td>${escapeHtml(m.RequestedBy)}</td>
-              <td class="tabular">${formatNumber(m.OpeningKM)}</td>
-              <td class="tabular">${m.Status === 'Completed' ? formatNumber(m.ClosingKM) : '—'}</td>
-              <td class="tabular">${m.Status === 'Completed' ? formatNumber(m.TotalKM) : '—'}</td>
-              <td>${statusBadge(m)}</td>
-              <td>${escapeHtml(m.PurposePlace)}</td>
-              <td>${escapeHtml(m.PermittedBy)}</td>
-            </tr>`).join('')}
-          </tbody>
-          <tfoot><tr><td colspan="10">Total</td><td class="tabular">${formatNumber(totalKm)}</td><td colspan="3"></td></tr></tfoot>
+        <div class="table-wrap"><table class="data-table report-table">
+          <thead><tr>${headHtml}</tr></thead>
+          <tbody>${bodyHtml}</tbody>
+          <tfoot><tr><td colspan="${beforeTotal}">Total</td><td class="tabular">${formatNumber(totalKm)}</td><td colspan="${afterTotal}"></td></tr></tfoot>
         </table></div>`;
+
+    $$('#rp-body th[data-sort]').forEach(th => th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      if (f.sortKey === key){
+        f.sortDir = f.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        f.sortKey = key;
+        f.sortDir = 'asc';
+      }
+      renderReportBody();
+    }));
   }
 
   $('#rp-xlsx').addEventListener('click', () => {
@@ -833,6 +1067,8 @@ function renderReportsPage(container){
       },
     });
   });
+
+  if (f.generated) renderReportBody();
 }
 
 function exportReportXlsx(f, rows){
