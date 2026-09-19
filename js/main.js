@@ -181,14 +181,14 @@ function renderShell(){
     <div class="sidebar" id="sidebar">
       <div class="sidebar-brand">
         <div class="logo">${icon('car')}</div>
-        <div class="name">Vehicle Movement</div>
+        <div class="name">MT Ops</div>
       </div>
       <nav class="nav" id="nav-list">
         ${navItems().map(n => `
           <a href="#/${n.id}" class="nav-item" data-nav="${n.id}">${icon(n.icon)}<span>${n.label}</span></a>
         `).join('')}
       </nav>
-      <div class="sidebar-foot">Daily Vehicle Movement Register<br>Live · data synced via Cloud Firestore</div>
+      <div class="sidebar-foot">Daily MT Ops Register<br>Live · data synced via Cloud Firestore</div>
     </div>
     <div class="main">
       <div class="topbar">

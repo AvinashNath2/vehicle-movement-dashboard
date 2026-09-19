@@ -252,7 +252,7 @@ async function openShareModal(movId){
   const inT    = m.ClosingTime ? formatTime(m.ClosingTime) : '—';
   const done   = m.Status === 'Completed';
   const lines  = [
-    '*03 BN NDRF — Vehicle Movement*',
+    '*03 BN NDRF — MT Ops*',
     '━━━━━━━━━━━━━━━━',
     `Veh: ${m.RegistrationNo} (${m.VehicleType})`,
     `Driver: ${m.DriverName}`,
@@ -270,7 +270,7 @@ async function openShareModal(movId){
   const card = document.createElement('div');
   card.className = 'mv-share-card';
   card.innerHTML = `
-    <div class="sc-head"><div class="sc-unit">03 BN NDRF, MUNDALI</div><div class="sc-sub">Vehicle Movement Record</div></div>
+    <div class="sc-head"><div class="sc-unit">03 BN NDRF, MUNDALI</div><div class="sc-sub">MT Ops Record</div></div>
     <table class="sc-table">
       <tr><td class="sk">Vehicle</td><td class="sv">${escapeHtml(m.RegistrationNo)} — ${escapeHtml(m.VehicleType)}</td></tr>
       <tr><td class="sk">Date</td><td class="sv">${date}</td></tr>
@@ -280,7 +280,7 @@ async function openShareModal(movId){
       <tr><td class="sk">Total KM</td><td class="sv"><strong>${fmtKm(m.TotalKM)}</strong></td></tr>` : ''}
       <tr><td class="sk">Purpose</td><td class="sv">${escapeHtml(m.PurposePlace)}</td></tr>
       ${m.PermittedBy ? `<tr><td class="sk">Permitted By</td><td class="sv">${escapeHtml(m.PermittedBy)}</td></tr>` : ''}
-      <tr><td class="sk">Status</td><td class="sv sc-status-${done?'ok':'wip'}">${done ? '✅ Completed' : '🔴 In Progress'}</td></tr>
+      <tr><td class="sk">Status</td><td class="sv"><span class="sc-status-${done?'ok':'wip'}">${done ? 'Completed' : 'In Progress'}</span></td></tr>
     </table>`;
   document.body.appendChild(card);
 
@@ -293,19 +293,24 @@ async function openShareModal(movId){
   }
   document.body.removeChild(card);
 
-  const imgHtml = imgSrc ? `<img src="${imgSrc}" style="width:100%;border-radius:8px;margin-bottom:14px;border:1px solid var(--border)">` : '';
   openModal({
     title: 'Share Movement',
+    large: true,
     bodyHtml: `
-      ${imgHtml}
-      <div class="field"><label>WhatsApp Message</label>
-        <textarea id="share-text" rows="8" style="font-size:13px;font-family:monospace">${escapeHtml(text)}</textarea>
+      <div class="share-grid">
+        ${imgSrc ? `<div class="share-preview"><img src="${imgSrc}" alt="Movement card preview"></div>` : ''}
+        <div class="share-message">
+          <div class="field" style="margin:0">
+            <label>WhatsApp Message</label>
+            <textarea id="share-text" rows="10">${escapeHtml(text)}</textarea>
+          </div>
+        </div>
       </div>`,
     footerHtml: `
-      <button class="btn btn-outline" data-close-modal type="button">Close</button>
+      <button class="btn btn-outline btn-sm" data-close-modal type="button" style="margin-right:auto">Close</button>
       <button class="btn btn-outline btn-sm" id="share-copy" type="button">${icon('doc')} Copy Text</button>
       ${imgSrc ? `<button class="btn btn-outline btn-sm" id="share-dl" type="button">${icon('download')} Save Image</button>` : ''}
-      <button class="btn btn-sm" style="background:#25D366;color:#fff;border:none" id="share-wa" type="button">${icon('share')} WhatsApp</button>`,
+      <button class="btn btn-sm share-wa-btn" id="share-wa" type="button">${icon('share')} WhatsApp</button>`,
     onMount: (bd) => {
       $('#share-copy', bd).addEventListener('click', async () => {
         const t = $('#share-text', bd).value;
