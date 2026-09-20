@@ -8,7 +8,7 @@ function makeDefaultFilters(){
     allMovements: { search: '', from: '', to: '', vehicle: 'ALL', driver: '', forceNo: '', page: 1 },
     vehicles: { search: '', status: 'ALL', page: 1 },
     reports: { from: from7, to: todayISO(), vehicle: 'ALL', generated: false, sortKey: 'Date', sortDir: 'desc' },
-    audit: { search: '', from: '', to: '', page: 1 },
+    audit: { search: '', from: '', to: '', user: 'ALL', page: 1 },
   };
 }
 

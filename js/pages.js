@@ -1268,11 +1268,24 @@ function exportReportPdf(f, rows){
 
 function renderAuditPage(container){
   const f = App.filters.audit;
+
+  // Actor list: known users (by profile) + any usernames only seen in
+  // the audit log itself (e.g. a deleted account). Sorted by label.
+  const knownUsernames = new Set(DB.users.map(u => u.Username));
+  const logUsernames = new Set(DB.auditLog.map(a => a.User).filter(Boolean));
+  const userOpts = [
+    { value: 'ALL', label: 'All Users' },
+    ...DB.users.map(u => ({ value: u.Username, label: `${u.DisplayName} · ${u.ForceNo || u.Username}` })),
+    ...[...logUsernames].filter(u => !knownUsernames.has(u))
+      .map(u => ({ value: u, label: `${u} (removed)` })),
+  ];
+
   container.innerHTML = `
     <div class="card">
       <div class="card-pad">
         <div class="filter-bar" style="margin-bottom:14px">
           <div class="field grow"><label>Search</label><div class="input-icon">${icon('search')}<input type="search" id="au-search" placeholder="Search log…" value="${escapeHtml(f.search)}"></div></div>
+          <div class="field"><label>User</label>${buildSearchableSelect({ id:'au-user', options:userOpts, value:f.user||'ALL', placeholder:'All Users' })}</div>
           <div class="field"><label>From Date</label><input type="date" id="au-from" value="${f.from}"></div>
           <div class="field"><label>To Date</label><input type="date" id="au-to" value="${f.to}"></div>
           <div class="actions"><button class="btn btn-outline" id="au-clear" type="button">Clear</button></div>
@@ -1287,9 +1300,10 @@ function renderAuditPage(container){
     </div>`;
 
   $('#au-search').addEventListener('input', debounce(() => { f.search = $('#au-search').value; f.page = 1; renderTable(); }, 200));
+  wireSearchableSelect('au-user', (val) => { f.user = val; f.page = 1; renderTable(); });
   $('#au-from').addEventListener('change', () => { f.from = $('#au-from').value; f.page = 1; renderTable(); });
   $('#au-to').addEventListener('change', () => { f.to = $('#au-to').value; f.page = 1; renderTable(); });
-  $('#au-clear').addEventListener('click', () => { Object.assign(f, { search:'', from:'', to:'', page:1 }); renderPage('audit'); });
+  $('#au-clear').addEventListener('click', () => { Object.assign(f, { search:'', from:'', to:'', user:'ALL', page:1 }); renderPage('audit'); });
 
   function renderTable(){
     const q = f.search.trim().toLowerCase();
@@ -1297,21 +1311,31 @@ function renderAuditPage(container){
       const day = (a.Timestamp || '').slice(0,10);
       if (f.from && day < f.from) return false;
       if (f.to && day > f.to) return false;
-      if (q && !(`${a.User} ${a.Action} ${a.RecordType} ${a.RecordId} ${a.Details}`.toLowerCase().includes(q))) return false;
+      if (f.user && f.user !== 'ALL' && a.User !== f.user) return false;
+      if (q){
+        const u = DB.findUser(a.User);
+        const searchable = `${a.User} ${u?.DisplayName || ''} ${u?.ForceNo || ''} ${a.Action} ${a.RecordType} ${a.RecordId} ${a.Details}`.toLowerCase();
+        if (!searchable.includes(q)) return false;
+      }
       return true;
     }).sort((a,b) => new Date(b.Timestamp) - new Date(a.Timestamp));
 
     const info = paginate(rows, f.page, 10);
     $('#au-empty').innerHTML = info.total ? '' : `<div class="empty-state">${icon('clock')}<div>No audit entries match your filters.</div></div>`;
-    $('#au-tbody').innerHTML = info.rows.map((a, i) => `
+    $('#au-tbody').innerHTML = info.rows.map((a, i) => {
+      const u = DB.findUser(a.User);
+      const name = u?.DisplayName || a.User || '—';
+      const forceNo = u?.ForceNo || a.User || '';
+      return `
       <tr>
         <td class="cell-muted" data-label="#">${info.start + i + 1}</td>
         <td class="tabular" data-label="Timestamp">${formatDateTime(a.Timestamp)}</td>
-        <td data-label="User">${escapeHtml(a.User)}</td>
+        <td data-label="User"><strong>${escapeHtml(name)}</strong>${forceNo ? `<div class="cell-muted" style="font-size:11.5px">${escapeHtml(forceNo)}</div>` : ''}</td>
         <td data-label="Action">${actionBadge(a.Action)}</td>
         <td data-label="Record">${escapeHtml(a.RecordType)}${a.RecordId && a.RecordId !== '-' ? ` · ${escapeHtml(a.RecordId)}` : ''}</td>
         <td class="cell-muted" data-label="Details">${escapeHtml(a.Details)}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
     $('#au-pagination').innerHTML = paginationHtml(info);
     wirePagination($('#au-pagination'), (p) => { f.page = p; renderTable(); });
   }
