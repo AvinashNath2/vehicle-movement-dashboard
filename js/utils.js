@@ -251,20 +251,6 @@ async function openShareModal(movId){
   const outT   = m.OpeningTime ? formatTime(m.OpeningTime) : '—';
   const inT    = m.ClosingTime ? formatTime(m.ClosingTime) : '—';
   const done   = m.Status === 'Completed';
-  const lines  = [
-    '*03 BN NDRF — MT Ops*',
-    '━━━━━━━━━━━━━━━━',
-    `Veh: ${m.RegistrationNo} (${m.VehicleType})`,
-    `Driver: ${m.DriverName}`,
-    `Date: ${date}`,
-    `Out: ${outT} @ ${formatNumber(m.OpeningKM)} km`,
-    ...(done ? [`In: ${inT} @ ${formatNumber(m.ClosingKM)} km`, `Total: ${fmtKm(m.TotalKM)}`] : []),
-    `Purpose: ${m.PurposePlace}`,
-    ...(m.PermittedBy ? [`Permitted By: ${m.PermittedBy}`] : []),
-    `Status: ${done ? '✅ Completed' : '🔴 In Progress'}`,
-    '━━━━━━━━━━━━━━━━',
-  ];
-  const text = lines.join('\n');
 
   // Build off-screen card for capture
   const card = document.createElement('div');
@@ -280,6 +266,7 @@ async function openShareModal(movId){
       <tr><td class="sk">Total KM</td><td class="sv"><strong>${fmtKm(m.TotalKM)}</strong></td></tr>` : ''}
       <tr><td class="sk">Purpose</td><td class="sv">${escapeHtml(m.PurposePlace)}</td></tr>
       ${m.PermittedBy ? `<tr><td class="sk">Permitted By</td><td class="sv">${escapeHtml(m.PermittedBy)}</td></tr>` : ''}
+      ${m.Remarks ? `<tr><td class="sk">Remarks</td><td class="sv">${escapeHtml(m.Remarks)}</td></tr>` : ''}
       <tr><td class="sk">Status</td><td class="sv"><span class="sc-status-${done?'ok':'wip'}">${done ? 'Completed' : 'In Progress'}</span></td></tr>
     </table>`;
   document.body.appendChild(card);
@@ -293,45 +280,35 @@ async function openShareModal(movId){
   }
   document.body.removeChild(card);
 
+  if (!imgSrc){ toast('error', 'Image capture failed', 'Check console for details.'); return; }
+
   openModal({
     title: 'Share Movement',
     large: true,
-    bodyHtml: `
-      <div class="share-grid">
-        ${imgSrc ? `<div class="share-preview"><img src="${imgSrc}" alt="Movement card preview"></div>` : ''}
-        <div class="share-message">
-          <div class="field" style="margin:0">
-            <label>WhatsApp Message</label>
-            <textarea id="share-text" rows="10">${escapeHtml(text)}</textarea>
-          </div>
-        </div>
-      </div>`,
+    bodyHtml: `<div class="share-preview" style="max-width:none"><img src="${imgSrc}" alt="Movement card preview"></div>`,
     footerHtml: `
       <button class="btn btn-outline btn-sm" data-close-modal type="button" style="margin-right:auto">Close</button>
-      <button class="btn btn-outline btn-sm" id="share-copy" type="button">${icon('doc')} Copy Text</button>
-      ${imgSrc ? `<button class="btn btn-outline btn-sm" id="share-dl" type="button">${icon('download')} Save Image</button>` : ''}
+      <button class="btn btn-outline btn-sm" id="share-dl" type="button">${icon('download')} Save Image</button>
       <button class="btn btn-sm share-wa-btn" id="share-wa" type="button">${icon('share')} WhatsApp</button>`,
     onMount: (bd) => {
-      $('#share-copy', bd).addEventListener('click', async () => {
-        const t = $('#share-text', bd).value;
-        try { await navigator.clipboard.writeText(t); } catch { const s = $('#share-text', bd); s.select(); document.execCommand('copy'); }
-        toast('success', 'Copied to clipboard');
-      });
-      $('#share-dl', bd)?.addEventListener('click', () => {
+      $('#share-dl', bd).addEventListener('click', () => {
         const a = document.createElement('a');
         a.href = imgSrc; a.download = `movement-${m.RegistrationNo}-${m.Date}.png`; a.click();
       });
       $('#share-wa', bd).addEventListener('click', async () => {
-        const t = $('#share-text', bd).value;
-        if (imgSrc && navigator.share && navigator.canShare){
+        if (navigator.share && navigator.canShare){
           try {
             const res = await fetch(imgSrc);
             const blob = await res.blob();
             const file = new File([blob], `movement-${m.RegistrationNo}.png`, { type:'image/png' });
-            if (navigator.canShare({ files:[file] })){ await navigator.share({ files:[file], text:t }); return; }
+            if (navigator.canShare({ files:[file] })){ await navigator.share({ files:[file], title:'MT Ops Movement' }); return; }
           } catch(e){ /* fall through */ }
         }
-        window.open(`https://wa.me/?text=${encodeURIComponent(t)}`, '_blank');
+        // Fallback for desktop where WhatsApp Web won't accept an image via wa.me:
+        // download the image and open WhatsApp so the user can attach it manually.
+        const a = document.createElement('a');
+        a.href = imgSrc; a.download = `movement-${m.RegistrationNo}-${m.Date}.png`; a.click();
+        window.open('https://web.whatsapp.com/', '_blank');
       });
     },
   });
