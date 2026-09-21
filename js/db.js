@@ -381,6 +381,111 @@ const DB = {
     URL.revokeObjectURL(a.href);
   },
 
+  /* ---------------- full JSON backup / restore ---------------- */
+  exportBackupJson(){
+    const payload = {
+      backupVersion: 1,
+      appVersion: 'mt-ops-dashboard-2026-09',
+      createdAt: new Date().toISOString(),
+      createdBy: (typeof App !== 'undefined' && App.user?.Username) || 'system',
+      counts: {
+        users: this.users.length,
+        vehicles: this.vehicles.length,
+        movements: this.movements.length,
+        auditLog: this.auditLog.length,
+      },
+      collections: {
+        // Passwords live in Firebase Auth, never Firestore — same policy as exportBackupXlsx.
+        users: this.users.map(u => ({
+          Username: u.Username, DisplayName: u.DisplayName, Role: u.Role,
+          Active: u.Active, ForceNo: u.ForceNo || '',
+        })),
+        vehicles: this.vehicles,
+        movements: this.movements,
+        auditLog: this.auditLog,
+      },
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `mt-ops-backup-${todayISO()}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  },
+
+  parseBackupJson(text){
+    let obj;
+    try { obj = JSON.parse(text); } catch { throw new Error('File is not valid JSON.'); }
+    if (!obj || typeof obj !== 'object') throw new Error('Backup file is empty or malformed.');
+    if (obj.backupVersion !== 1) throw new Error(`Unsupported backup version: ${obj.backupVersion}. This app expects version 1.`);
+    if (!obj.createdAt || !obj.collections) throw new Error('Backup is missing metadata (createdAt/collections).');
+    const c = obj.collections;
+    for (const name of ['users','vehicles','movements','auditLog']){
+      if (!Array.isArray(c[name])) throw new Error(`Backup is missing "${name}" collection.`);
+    }
+    return obj;
+  },
+
+  computeRestoreImpact(backup){
+    const backupTs = backup.createdAt;
+    const idKey = { users: 'Username', vehicles: 'RegistrationNo', movements: 'ID', auditLog: 'ID' };
+    const report = {};
+    for (const name of ['users','vehicles','movements','auditLog']){
+      const cur = this[name] || [];
+      const back = backup.collections[name] || [];
+      const key = idKey[name];
+      const backIds = new Set(back.map(r => String(r[key])));
+      // "Newer in current" = record was created/updated after the backup was taken,
+      // OR is a brand-new record that never existed in the backup snapshot.
+      const newerInCurrent = cur.filter(r => {
+        if (!backIds.has(String(r[key]))) return true;
+        const upd = r.UpdatedAt || r.CreatedAt || r.Timestamp || r.AddedOn || '';
+        return upd && upd > backupTs;
+      }).length;
+      const missingFromBackup = cur.filter(r => !backIds.has(String(r[key]))).length;
+      report[name] = {
+        currentCount: cur.length,
+        backupCount: back.length,
+        newerInCurrent,
+        missingFromBackup,
+      };
+    }
+    report.isOlderBackup = ['users','vehicles','movements','auditLog']
+      .some(n => report[n].newerInCurrent > 0);
+    return report;
+  },
+
+  async restoreFromBackupJson(backup){
+    const { db, doc, collection, getDocs } = FB;
+    const c = backup.collections;
+    const ops = [];
+    for (const name of ['users','vehicles','movements','auditLog']){
+      const snap = await getDocs(collection(db, name));
+      snap.docs.forEach(d => ops.push(b => b.delete(d.ref)));
+    }
+    c.users.forEach(u => ops.push(b => b.set(doc(db, 'users', String(u.Username).toLowerCase()), u)));
+    c.vehicles.forEach(v => ops.push(b => b.set(doc(db, 'vehicles', v.RegistrationNo), v)));
+    c.movements.forEach(m => ops.push(b => b.set(doc(db, 'movements', m.ID), m)));
+    c.auditLog.forEach(a => ops.push(b => b.set(doc(db, 'auditLog', String(a.ID)), a)));
+    const total = ops.length;
+    let done = 0, failed = 0;
+    // Manual chunking (not _commitInChunks) so per-batch failures don't abort the whole restore.
+    for (let i = 0; i < ops.length; i += 450){
+      const chunk = ops.slice(i, i + 450);
+      try {
+        const batch = FB.writeBatch(db);
+        chunk.forEach(op => op(batch));
+        await batch.commit();
+        done += chunk.length;
+      } catch (err){
+        failed += chunk.length;
+        console.error('Restore batch failed:', err);
+      }
+    }
+    this.meta.source = `Cloud Firestore (restored from JSON backup ${backup.createdAt.slice(0,10)})`;
+    return { total, done, failed, backup };
+  },
+
   /* ---------------- bulk replace (import backup / reset) ---------------- */
   async _commitInChunks(ops){
     // Firestore batches max out at 500 ops.

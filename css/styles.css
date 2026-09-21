@@ -920,3 +920,20 @@ table.data-table{ width:100%; border-collapse:collapse; min-width:640px; }
   }
   .cards-sm tfoot td{ border:none; padding:0; background:none; }
 }
+
+/* ---------- Backup & Restore review / confirm modals ---------- */
+.backup-review-grid th,
+.backup-review-grid td{ white-space:nowrap; }
+.backup-review-grid .tabular{ text-align:right; font-variant-numeric:tabular-nums; }
+.backup-warning{
+  border-radius:12px; padding:12px 14px; display:flex; flex-direction:column;
+  border:1px solid transparent;
+}
+.backup-warning svg{ width:18px; height:18px; vertical-align:-3px; margin-right:4px; }
+.backup-warning-yellow{
+  background:var(--warning-bg); border-color:var(--warning); color:#7A4A0A;
+}
+.backup-warning-red{
+  background:var(--critical-bg); border-color:var(--critical); color:#7A1B2A;
+}
+.backup-checkbox input[type="checkbox"]{ transform:scale(1.15); accent-color:var(--critical); }

@@ -1385,6 +1385,30 @@ function renderSettingsPage(container){
     </div>
 
     ${isAdmin ? `
+    <div class="card card-pad" style="margin-top:16px">
+      <div class="section-title" style="margin-top:0">Backup & Restore</div>
+      <p class="helper-text">
+        Download a JSON snapshot of the entire cloud database for safekeeping, or restore
+        a previously downloaded snapshot. Restore <strong>replaces every record</strong>
+        with the backup contents — for every user, immediately.
+      </p>
+      <details style="margin:10px 0 4px">
+        <summary style="cursor:pointer;font-weight:600">What is in a backup?</summary>
+        <div style="margin-top:8px;font-size:13.5px;color:var(--text-muted);line-height:1.55">
+          User profiles (no passwords), Vehicles, Movements, and the full Audit Log — a snapshot
+          of the database as it is right now. Firebase Auth sign-in credentials are managed
+          separately and are not included. Keep the downloaded file secure: it contains
+          operational data.
+        </div>
+      </details>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn btn-outline" id="btn-backup-json" type="button">${icon('download')} Download Backup (.json)</button>
+        <button class="btn btn-outline" id="btn-restore-json" type="button">${icon('upload')} Import Backup (.json)</button>
+        <input type="file" id="restore-json-file" accept=".json,application/json" hidden>
+      </div>
+    </div>` : ''}
+
+    ${isAdmin ? `
     <div class="card" style="margin-top:16px">
       <div class="card-head">
         <h2>User Management</h2>
@@ -1484,6 +1508,27 @@ function renderSettingsPage(container){
     });
   });
 
+  $('#btn-backup-json').addEventListener('click', () => {
+    DB.exportBackupJson();
+    DB.logAudit(App.user, 'Exported', 'Backup', 'json', 'Full JSON backup downloaded');
+    toast('success', 'Backup downloaded', `${DB.users.length + DB.vehicles.length + DB.movements.length + DB.auditLog.length} record(s) written to .json`);
+  });
+
+  $('#btn-restore-json').addEventListener('click', () => $('#restore-json-file').click());
+  $('#restore-json-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const backup = DB.parseBackupJson(text);
+      const impact = DB.computeRestoreImpact(backup);
+      openBackupReviewModal(backup, impact, file.name);
+    } catch (err){
+      toast('error', 'Invalid backup', err.message);
+    }
+    e.target.value = '';
+  });
+
   if (isAdmin){
     const uf = { search: '', role: 'ALL', status: 'ALL', page: 1 };
 
@@ -1581,6 +1626,154 @@ function renderSettingsPage(container){
       });
     });
   }
+}
+
+/* ---------- Backup restore: 3-step modal flow ---------- */
+
+function openBackupReviewModal(backup, impact, fileName){
+  const created = formatDateTime(backup.createdAt);
+  const collLabel = { users:'Users', vehicles:'Vehicles', movements:'Movements', auditLog:'Audit Log' };
+  const gridRows = ['users','vehicles','movements','auditLog'].map(name => `
+    <tr>
+      <td>${collLabel[name]}</td>
+      <td class="tabular">${formatNumber(impact[name].currentCount)}</td>
+      <td class="tabular">${formatNumber(impact[name].backupCount)}</td>
+    </tr>`).join('');
+
+  const olderRows = ['users','vehicles','movements','auditLog']
+    .filter(n => impact[n].newerInCurrent > 0)
+    .map(n => `<li><strong>${collLabel[n]}:</strong> ${formatNumber(impact[n].newerInCurrent)} newer record(s) may be lost</li>`)
+    .join('');
+  const olderWarning = impact.isOlderBackup ? `
+    <div class="backup-warning backup-warning-yellow" style="margin-top:14px">
+      <div style="font-weight:600;margin-bottom:6px">${icon('alertTriangle')} This backup may contain older data</div>
+      <div style="font-size:13.5px;line-height:1.55">
+        The backup was created on <strong>${created}</strong>. Records that were created or updated after that time are not in the backup and will be overwritten.
+        <ul style="margin:8px 0 0 20px;padding:0">${olderRows}</ul>
+      </div>
+    </div>` : '';
+
+  const missingRows = ['users','vehicles','movements','auditLog']
+    .filter(n => impact[n].missingFromBackup > 0)
+    .map(n => `<li><strong>${collLabel[n]}:</strong> ${formatNumber(impact[n].missingFromBackup)} current record(s) will be deleted</li>`)
+    .join('');
+  const missingWarning = missingRows ? `
+    <div class="backup-warning backup-warning-red" style="margin-top:10px">
+      <div style="font-weight:600;margin-bottom:6px">${icon('alertTriangle')} Potential data loss</div>
+      <div style="font-size:13.5px;line-height:1.55">
+        The backup does not contain every record that is currently in the cloud database. A full restore will remove records that are not in the backup:
+        <ul style="margin:8px 0 0 20px;padding:0">${missingRows}</ul>
+      </div>
+    </div>` : '';
+
+  openModal({
+    title: 'Review Backup', large: true,
+    bodyHtml: `
+      <div style="font-size:14px;line-height:1.6">
+        <div class="section-title" style="margin-top:0">Backup Information</div>
+        <div class="kv-row"><span class="k">File</span><span class="v">${escapeHtml(fileName)}</span></div>
+        <div class="kv-row"><span class="k">Created</span><span class="v">${created}</span></div>
+        <div class="kv-row"><span class="k">Backup Version</span><span class="v">${backup.backupVersion}</span></div>
+        <div class="kv-row"><span class="k">Created By</span><span class="v">${escapeHtml(backup.createdBy || '—')}</span></div>
+
+        <div class="section-title" style="margin-top:18px">Current vs. Backup</div>
+        <div class="table-wrap"><table class="data-table backup-review-grid">
+          <thead><tr><th>Collection</th><th class="tabular">Current</th><th class="tabular">Backup</th></tr></thead>
+          <tbody>${gridRows}</tbody>
+        </table></div>
+
+        ${olderWarning}
+        ${missingWarning}
+
+        <p class="helper-text" style="margin-top:14px">
+          <strong>Note:</strong> Restoring users updates their profile only. Firebase Auth sign-in credentials are managed separately and are not affected by a JSON backup restore.
+        </p>
+      </div>`,
+    footerHtml: `
+      <button class="btn btn-outline" data-close-modal type="button" style="margin-right:auto">Cancel</button>
+      <button class="btn btn-primary" id="backup-continue" type="button">Continue to Import</button>`,
+    onMount: (bd) => {
+      $('#backup-continue', bd).addEventListener('click', () => {
+        closeModal();
+        openBackupConfirmModal(backup, impact);
+      });
+    },
+  });
+}
+
+function openBackupConfirmModal(backup, impact){
+  const created = formatDateLong(backup.createdAt.slice(0,10));
+  const collLabel = { users:'Users', vehicles:'Vehicles', movements:'Movements', auditLog:'Audit Log' };
+  const affectedRows = ['users','vehicles','movements','auditLog']
+    .filter(n => impact[n].newerInCurrent > 0)
+    .map(n => `<li><strong>${collLabel[n]}:</strong> ${formatNumber(impact[n].newerInCurrent)}</li>`)
+    .join('');
+  const affectedBlock = affectedRows ? `
+    <div style="margin-top:12px;font-size:13.5px">
+      <div style="font-weight:600;margin-bottom:4px">Potentially affected records:</div>
+      <ul style="margin:0 0 0 20px;padding:0">${affectedRows}</ul>
+    </div>` : '';
+
+  openModal({
+    title: 'Confirm Backup Restore',
+    bodyHtml: `
+      <div class="confirm-icon" style="background:var(--critical-bg);color:var(--critical)">${icon('alertTriangle')}</div>
+      <div style="font-size:14px;line-height:1.6">
+        <p style="margin:0 0 6px">You are about to restore data from a backup created on <strong>${created}</strong>.</p>
+        <p style="margin:0;color:var(--text-muted)">This will <strong>overwrite the current cloud database for every user</strong>. This action cannot be undone.</p>
+        ${affectedBlock}
+        <label class="backup-checkbox" style="display:flex;align-items:flex-start;gap:10px;margin-top:16px;padding:12px;border:1px solid var(--border);border-radius:10px;cursor:pointer;font-size:13.5px;line-height:1.5">
+          <input type="checkbox" id="backup-ack" style="margin-top:2px">
+          <span>I understand that restoring this backup will overwrite current data and may cause loss of newer records.</span>
+        </label>
+      </div>`,
+    footerHtml: `
+      <button class="btn btn-outline" data-close-modal type="button" style="margin-right:auto">Cancel</button>
+      <button class="btn btn-danger" id="backup-restore" type="button" disabled>Restore Backup</button>`,
+    onMount: (bd) => {
+      const btn = $('#backup-restore', bd);
+      $('#backup-ack', bd).addEventListener('change', (e) => { btn.disabled = !e.target.checked; });
+      btn.addEventListener('click', async () => {
+        closeModal();
+        showLoadingOverlay('Restoring backup…');
+        try {
+          const res = await DB.restoreFromBackupJson(backup);
+          DB.logAudit(App.user, 'Restored', 'Backup', backup.createdAt, `Restored JSON backup (${res.done}/${res.total} ops)`);
+          hideLoadingOverlay();
+          openBackupResultModal(res);
+        } catch(err){
+          hideLoadingOverlay();
+          toast('error', 'Restore failed', err.message || 'See console.');
+          console.error(err);
+        }
+      });
+    },
+  });
+}
+
+function openBackupResultModal(result){
+  const { done, failed, total, backup } = result;
+  const created = formatDateLong(backup.createdAt.slice(0,10));
+  const ok = failed === 0;
+  const collLabel = { users:'Users', vehicles:'Vehicles', movements:'Movements', auditLog:'Audit Log' };
+  const perColl = ['users','vehicles','movements','auditLog']
+    .map(n => `<div class="kv-row"><span class="k">${collLabel[n]}</span><span class="v tabular">${formatNumber(backup.counts[n] || 0)}</span></div>`)
+    .join('');
+  openModal({
+    title: ok ? 'Backup Restored' : 'Restore Completed with Errors',
+    bodyHtml: `
+      <div class="confirm-icon" style="background:${ok ? 'var(--good-bg,#E6F4EA)' : 'var(--critical-bg)'};color:${ok ? 'var(--good,#137333)' : 'var(--critical)'}">${icon(ok ? 'check' : 'alertTriangle')}</div>
+      <div style="font-size:14px;line-height:1.6">
+        <p style="margin:0 0 10px">
+          ${ok ? `The backup created on <strong>${created}</strong> was restored successfully.` : `The restore finished, but ${formatNumber(failed)} of ${formatNumber(total)} write operations failed. Check the browser console for details.`}
+        </p>
+        <div class="section-title" style="margin-top:14px">Restored from backup</div>
+        ${perColl}
+        <div class="kv-row" style="margin-top:8px"><span class="k">Write operations</span><span class="v tabular">${formatNumber(done)} / ${formatNumber(total)}</span></div>
+      </div>`,
+    footerHtml: `<button class="btn btn-primary" data-close-modal type="button">Close</button>`,
+    onClose: () => { renderPage('settings'); },
+  });
 }
 
 function openEditUserModal(u, onSaved){
