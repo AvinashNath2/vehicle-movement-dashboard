@@ -111,7 +111,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 @media (prefers-reduced-motion: reduce){
   *, *::before, *::after{ animation-duration:.01ms !important; transition-duration:.01ms !important; }
 }
-.tabular{ font-variant-numeric: tabular-nums; }
+.tabular{ font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ---------- login ---------- */
 #login-screen, #app-shell{ min-height:100vh; }
