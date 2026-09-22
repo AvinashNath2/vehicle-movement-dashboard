@@ -490,14 +490,15 @@ table.data-table{ width:100%; border-collapse:collapse; min-width:640px; }
 }
 .share-card *{ box-sizing:border-box; }
 .share-card .sc-head{
-  background:#141414; color:#fff; padding:22px 28px;
+  background:#fff; color:#141414; padding:22px 28px;
+  border-bottom:1px solid #DCDBE0;
 }
 .share-card .sc-unit{
   font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
   font-size:20px; font-weight:700; letter-spacing:-.01em; line-height:1.2;
 }
 .share-card .sc-sub{
-  font-size:11px; opacity:.85; margin-top:6px;
+  font-size:11px; color:#4C4C55; margin-top:6px;
   letter-spacing:.1em; text-transform:uppercase; font-weight:500;
 }
 
@@ -588,7 +589,7 @@ table.data-table{ width:100%; border-collapse:collapse; min-width:640px; }
   font-size:10.5px; color:#9A9AA3; min-width:0;
 }
 .dashboard-share-card .dsc-bar{
-  width:100%; max-width:36px; background:#141414; border-radius:6px 6px 0 0;
+  width:100%; max-width:36px; background:#7C5CFF; border-radius:6px 6px 0 0;
 }
 .dashboard-share-card .dsc-bar-val{
   font-size:10px; color:#4C4C55; font-weight:600; margin-bottom:2px;
@@ -609,7 +610,7 @@ table.data-table{ width:100%; border-collapse:collapse; min-width:640px; }
 }
 .dashboard-share-card .dsc-rank-name span{ font-size:10.5px; color:#9A9AA3; }
 .dashboard-share-card .dsc-rank-track{ height:8px; background:#F7F6FA; border-radius:4px; overflow:hidden; }
-.dashboard-share-card .dsc-rank-fill{ height:100%; background:#141414; border-radius:4px; }
+.dashboard-share-card .dsc-rank-fill{ height:100%; background:#7C5CFF; border-radius:4px; }
 .dashboard-share-card .dsc-rank-val{
   font-size:12px; font-weight:600; color:#141414; font-variant-numeric:tabular-nums;
 }
@@ -629,15 +630,15 @@ table.data-table{ width:100%; border-collapse:collapse; min-width:640px; }
 }
 .mv-share-card *{ box-sizing:border-box; }
 .mv-share-card .sc-head{
-  background:#141414; color:#fff;
-  padding:20px 22px;
+  background:#fff; color:#141414;
+  padding:20px 22px; border-bottom:1px solid #DCDBE0;
 }
 .mv-share-card .sc-unit{
   font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
   font-size:18px; font-weight:700; letter-spacing:-.01em; line-height:1.2;
 }
 .mv-share-card .sc-sub{
-  font-size:11px; opacity:.85; margin-top:6px;
+  font-size:11px; color:#4C4C55; margin-top:6px;
   letter-spacing:.1em; text-transform:uppercase; font-weight:500;
 }
 .mv-share-card .sc-table{ width:100%; border-collapse:collapse; font-size:13.5px; table-layout:fixed; }

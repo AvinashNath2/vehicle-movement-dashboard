@@ -1257,8 +1257,8 @@ function exportReportPdf(f, rows){
     head: [['#','Date','Out','In','Vehicle','Type','Driver','Requested By','Open KM','Close KM','Total KM','Status','Purpose / Place','Permitted By','Remarks']],
     body: rows.map((m,i) => [i+1, formatDateDMY(m.Date), m.OpeningTime?formatTime(m.OpeningTime):'', m.Status==='Completed'&&m.ClosingTime?formatTime(m.ClosingTime):'', m.RegistrationNo, m.VehicleType, m.DriverName, m.RequestedBy, formatNumber(m.OpeningKM), formatNumber(m.ClosingKM), formatNumber(m.TotalKM), m.Status, m.PurposePlace, m.PermittedBy, m.Remarks || '']),
     foot: [['','','','','','','','','','Total', formatNumber(totalKm),'','','','']],
-    styles: { fontSize: 7.5, textColor: [20,20,20] },
-    headStyles: { fillColor: [20,20,20], textColor: [255,255,255] },
+    styles: { fontSize: 7.5, textColor: [20,20,20], lineColor: [220,219,224], lineWidth: 0.1 },
+    headStyles: { fillColor: [247,246,250], textColor: [20,20,20], fontStyle: 'bold' },
     footStyles: { fillColor: [247,246,250], textColor: [20,20,20] },
     columnStyles: { 0:{cellWidth:8}, 1:{cellWidth:20}, 2:{cellWidth:14}, 3:{cellWidth:14}, 10:{cellWidth:16} },
   });
