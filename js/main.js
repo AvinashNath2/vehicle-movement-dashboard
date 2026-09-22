@@ -134,7 +134,19 @@ async function handleLogin(e){
   btn.innerHTML = '<span class="spinner"></span> Signing in…';
   const fail = (msg) => { errBox.textContent = msg; errBox.hidden = false; };
   try {
-    await FB.signInWithEmailAndPassword(FB.auth, DB.emailFor(username), password);
+    // Try modern gmail-alias login first; fall back to the pre-migration
+    // `@vmd-fleet.app` email so existing accounts still work. If the legacy
+    // sign-in succeeds, migrate the auth email transparently so next time
+    // the modern path takes over — and password-reset links can be sent.
+    const credentialCodes = ['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password', 'auth/invalid-email'];
+    try {
+      await FB.signInWithEmailAndPassword(FB.auth, DB.emailFor(username), password);
+    } catch (primaryErr){
+      if (!credentialCodes.includes(primaryErr.code)) throw primaryErr;
+      await FB.signInWithEmailAndPassword(FB.auth, DB.legacyEmailFor(username), password);
+      try { await FB.updateEmail(FB.auth.currentUser, DB.emailFor(username)); }
+      catch (migErr){ console.warn('Legacy email migration deferred:', migErr?.code || migErr); }
+    }
     await DB.init();
     const u = DB.findUser(username);
     if (!u || String(u.Active).toLowerCase() === 'no'){

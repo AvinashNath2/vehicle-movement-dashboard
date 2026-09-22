@@ -19,7 +19,18 @@
    ========================================================================== */
 
 const BASELINE_URL = 'data/vehicle-register.xlsx';
-const EMAIL_DOMAIN = 'vmd-fleet.app';
+
+// Password-reset routing: every user's Firebase Auth email is a Gmail
+// plus-alias of RESET_INBOX. Password reset links Firebase sends therefore
+// all land in this single inbox, which the MT admin owns. Keep the inbox
+// secured with 2FA — it's the root of trust for password recovery.
+const RESET_INBOX = 'avinashnath2@gmail.com';
+const LEGACY_EMAIL_DOMAIN = 'vmd-fleet.app';
+
+function _splitInbox(inbox){
+  const at = inbox.indexOf('@');
+  return { local: inbox.slice(0, at), domain: inbox.slice(at + 1) };
+}
 
 // Older docs/backups predate the Status field — derive it so nothing needs
 // a migration: a recorded closing KM means the trip is finished.
@@ -39,8 +50,14 @@ const DB = {
   onRemoteChange: null, // set by main.js
 
   emailFor(username){
-    return String(username || '').trim().toLowerCase() + '@' + EMAIL_DOMAIN;
+    const u = String(username || '').trim().toLowerCase();
+    const { local, domain } = _splitInbox(RESET_INBOX);
+    return `${local}+${u}@${domain}`;
   },
+  legacyEmailFor(username){
+    return String(username || '').trim().toLowerCase() + '@' + LEGACY_EMAIL_DOMAIN;
+  },
+  resetInboxDisplay(){ return RESET_INBOX; },
 
   /* ---------------- live subscriptions ---------------- */
   async init(){
@@ -300,6 +317,14 @@ const DB = {
     await FB.updatePassword(secondaryAuth.currentUser, newPw);
     await FB.signOut(secondaryAuth);
     this.logAudit(adminUser, 'Updated', 'User', username, 'Password reset by admin');
+  },
+  async sendPasswordResetLink(username, adminUser){
+    // Firebase mails a "set new password" link to the auth email of the
+    // account. Every user's auth email is a plus-alias of RESET_INBOX, so
+    // the mail lands in that single Gmail inbox regardless of which user
+    // triggered it. Admin opens the mail, clicks the link, sets a default.
+    await FB.sendPasswordResetEmail(FB.auth, this.emailFor(username));
+    this.logAudit(adminUser, 'Updated', 'User', username, `Password reset link sent to ${RESET_INBOX}`);
   },
   setUserActive(username, active, user){
     const u = this.findUser(username);

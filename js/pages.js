@@ -1411,6 +1411,19 @@ function renderSettingsPage(container){
     </div>` : ''}
 
     ${isAdmin ? `
+    <div class="card card-pad" style="margin-top:16px;background:var(--surface-alt);border:1px dashed var(--border)">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div style="flex-shrink:0;color:var(--brand);margin-top:2px">${icon('info')}</div>
+        <div style="font-size:13.5px;line-height:1.55">
+          <strong>Password recovery is configured.</strong>
+          When you click <em>Reset Password</em> on any user below, Firebase will email a
+          set-new-password link to
+          <code style="background:var(--surface);padding:2px 6px;border-radius:6px;border:1px solid var(--border);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px">${escapeHtml(DB.resetInboxDisplay())}</code>.
+          Open that inbox, click the link, and set a default password to hand back to the user.
+          Keep this Gmail account secured with 2-factor authentication — it's the root of trust for password recovery.
+        </div>
+      </div>
+    </div>
     <div class="card" style="margin-top:16px">
       <div class="card-head">
         <h2>User Management</h2>
@@ -1828,34 +1841,40 @@ function openEditUserModal(u, onSaved){
 }
 
 function openResetPasswordModal(username){
+  const inbox = DB.resetInboxDisplay();
+  const u = DB.findUser(username);
+  const label = u ? `${u.DisplayName} (${username})` : username;
   openModal({
-    title: `Reset Password — ${username}`,
+    title: `Send Password Reset Link`,
     bodyHtml: `
-      <p class="helper-text" style="margin-bottom:14px">Admin must provide the user's current password to set a new one. If the password is unknown, delete and recreate the user account.</p>
-      <div class="field"><label>User's Current Password *</label><input type="password" id="rp-curpw" placeholder="User's existing password"></div>
-      <div class="field"><label>New Password *</label><input type="password" id="rp-newpw" placeholder="Min 6 characters"></div>
-      <div class="field"><label>Confirm New Password *</label><input type="password" id="rp-cfpw" placeholder="Re-enter new password"></div>
-      <div id="rp-error" class="error-text" hidden></div>`,
-    footerHtml: `<button class="btn btn-outline" data-close-modal type="button">Cancel</button><button class="btn btn-primary" id="rp-save" type="button">Reset Password</button>`,
-    onMount: (bd) => $('#rp-save', bd).addEventListener('click', async () => {
-      const cur  = $('#rp-curpw', bd).value;
-      const nw   = $('#rp-newpw', bd).value;
-      const cf   = $('#rp-cfpw', bd).value;
-      const err  = $('#rp-error', bd);
+      <p style="margin:0 0 12px;font-size:14px;line-height:1.55">
+        Firebase will email a <strong>set new password</strong> link for
+        <strong>${escapeHtml(label)}</strong> to the admin recovery inbox:
+      </p>
+      <div style="background:var(--surface-alt);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px;margin-bottom:12px">
+        ${escapeHtml(inbox)}
+      </div>
+      <p class="helper-text" style="margin:0">
+        Open that mailbox, click the link, and set a default password (e.g. <code>mtops123</code> or the user's Force No.). Then share the new password with the user in person.
+      </p>
+      <div id="rp-error" class="error-text" hidden style="margin-top:10px"></div>`,
+    footerHtml: `<button class="btn btn-outline" data-close-modal type="button">Cancel</button><button class="btn btn-primary" id="rp-send" type="button">${icon('share')} Send Reset Link</button>`,
+    onMount: (bd) => $('#rp-send', bd).addEventListener('click', async () => {
+      const btn = $('#rp-send', bd);
+      const err = $('#rp-error', bd);
       const fail = (msg) => { err.textContent = msg; err.hidden = false; };
-      if (!cur || !nw || !cf){ fail('All fields are required.'); return; }
-      if (nw.length < 6){ fail('New password must be at least 6 characters.'); return; }
-      if (nw !== cf){ fail('Passwords do not match.'); return; }
-      const btn = $('#rp-save', bd);
       btn.disabled = true;
+      btn.textContent = 'Sending…';
       try {
-        await DB.adminResetPassword(username, cur, nw, App.user);
-        toast('success', 'Password reset', username);
+        await DB.sendPasswordResetLink(username, App.user);
+        toast('success', 'Reset link sent', `Check ${inbox}`);
         closeModal();
       } catch(e){
         btn.disabled = false;
-        if (['auth/invalid-credential','auth/wrong-password'].includes(e.code)) fail('Current password is incorrect.');
-        else if (e.code === 'auth/weak-password') fail('New password is too weak (min 6 characters).');
+        btn.innerHTML = `${icon('share')} Send Reset Link`;
+        if (e.code === 'auth/user-not-found') fail('No auth account for this user. Ask the user to sign in once so the account can migrate.');
+        else if (e.code === 'auth/too-many-requests') fail('Firebase is rate-limiting reset emails. Wait a few minutes and try again.');
+        else if (e.code === 'auth/network-request-failed') fail('Network error — check your internet connection.');
         else { fail('Error: ' + (e.message || e.code)); console.error(e); }
       }
     }),

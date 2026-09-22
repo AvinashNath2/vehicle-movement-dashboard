@@ -9,7 +9,7 @@ import { initializeApp, getApp, getApps } from 'https://www.gstatic.com/firebase
 import {
   getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
   onAuthStateChanged, signOut, updatePassword, updateEmail,
-  reauthenticateWithCredential, EmailAuthProvider,
+  reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail,
 } from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
@@ -42,7 +42,7 @@ window.FB = {
   app, auth, db, firebaseConfig,
   initializeApp, getApp, getApps, getAuth,
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  onAuthStateChanged, signOut, updatePassword,
+  onAuthStateChanged, signOut, updatePassword, sendPasswordResetEmail,
   reauthenticateWithCredential, EmailAuthProvider, updateEmail,
   collection, doc, setDoc, updateDoc, deleteDoc, getDocs, onSnapshot, writeBatch,
 };
