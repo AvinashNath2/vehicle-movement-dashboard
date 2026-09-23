@@ -1106,16 +1106,16 @@ function buildReportShareCard(f, rows, totalKm, vehiclesUsed){
       <td class="rsc-num">${m.OpeningTime ? formatTime(m.OpeningTime) : '—'}</td>
       <td class="rsc-num">${m.Status==='Completed' && m.ClosingTime ? formatTime(m.ClosingTime) : '—'}</td>
       <td><strong>${escapeHtml(m.RegistrationNo)}</strong></td>
-      <td>${escapeHtml(m.VehicleType)}</td>
+      <td class="rsc-wrap">${escapeHtml(m.VehicleType)}</td>
       <td>${escapeHtml(m.DriverName)}</td>
-      <td>${escapeHtml(m.RequestedBy) || '—'}</td>
+      <td class="rsc-wrap">${escapeHtml(m.RequestedBy) || '—'}</td>
       <td class="rsc-num">${formatNumber(m.OpeningKM)}</td>
       <td class="rsc-num">${m.Status==='Completed' ? formatNumber(m.ClosingKM) : '—'}</td>
       <td class="rsc-num"><strong>${m.Status==='Completed' ? formatNumber(m.TotalKM) : '—'}</strong></td>
       <td><span class="rsc-status rsc-status-${m.Status==='Completed'?'ok':'wip'}">${m.Status}</span></td>
-      <td>${escapeHtml(m.PurposePlace)}</td>
-      <td>${escapeHtml(m.PermittedBy) || '—'}</td>
-      <td>${m.Remarks ? escapeHtml(m.Remarks) : '—'}</td>
+      <td class="rsc-wrap">${escapeHtml(m.PurposePlace)}</td>
+      <td class="rsc-wrap">${escapeHtml(m.PermittedBy) || '—'}</td>
+      <td class="rsc-wrap">${m.Remarks ? escapeHtml(m.Remarks) : '—'}</td>
     </tr>`).join('');
   card.innerHTML = `
     <div class="sc-head">

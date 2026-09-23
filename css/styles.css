@@ -526,9 +526,13 @@ table.data-table{ width:100%; border-collapse:collapse; min-width:640px; }
 .report-share-card .rsc-table td{
   padding:10px; border-bottom:1px solid #EDECEF;
   vertical-align:top; color:#141414; font-size:11.5px; line-height:1.4;
+  white-space:nowrap;
 }
 .report-share-card .rsc-table td.rsc-num{
-  white-space:nowrap; font-variant-numeric:tabular-nums;
+  font-variant-numeric:tabular-nums;
+}
+.report-share-card .rsc-table td.rsc-wrap{
+  white-space:normal; word-break:break-word; max-width:180px;
 }
 .report-share-card .rsc-table tfoot td{
   background:#F7F6FA; font-weight:600; padding:11px 10px;
