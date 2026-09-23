@@ -86,10 +86,10 @@ function renderDashboardPage(container){
         </div>
         <div class="card">
           <div class="card-head">
-            <h2>Top Vehicles by Distance</h2>
-            <a href="#" id="view-all-top" class="link">View All</a>
+            <h2>Vehicles by KM (in range)</h2>
+            <span class="cell-muted" id="veh-km-count" style="font-size:12px"></span>
           </div>
-          <div class="card-pad" id="top-vehicles-list"></div>
+          <div class="card-pad" id="top-vehicles-list" style="max-height:520px;overflow-y:auto"></div>
         </div>
       </div>
     </div>
@@ -135,16 +135,9 @@ function renderDashboardPage(container){
   }
   renderDailyKmChart($('#daily-chart'), days);
 
-  renderTopVehicles($('#top-vehicles-list'), inRange, 5);
-  $('#view-all-top').addEventListener('click', (e) => {
-    e.preventDefault();
-    openModal({
-      title: 'All Vehicles by Distance',
-      large: true,
-      bodyHtml: `<div id="top-vehicles-full"></div>`,
-      onMount: (m) => renderTopVehicles($('#top-vehicles-full', m), inRange, 999),
-    });
-  });
+  renderTopVehicles($('#top-vehicles-list'), inRange, Infinity);
+  const uniqueRan = new Set(inRange.map(m => m.RegistrationNo)).size;
+  $('#veh-km-count').textContent = uniqueRan ? `${uniqueRan} vehicle${uniqueRan === 1 ? '' : 's'} · ${formatNumber(totalKm)} km` : '';
 
   $('#db-share').addEventListener('click', async () => {
     if (!$('#dashboard-capture')){ toast('error', 'Nothing to share', 'Dashboard not ready.'); return; }
@@ -1174,14 +1167,15 @@ function buildDashboardShareCard(f, rows, days, activeDriver, totalKm, vehiclesU
       <div class="dsc-bar-lbl">${d.label}</div>
     </div>`;
   }).join('');
-  // Top vehicles for context
+  // Every vehicle that ran in the current filter (no top-N cap — the user
+  // wants the full fleet breakdown to appear in the shared image).
   const byVehicle = {};
   rows.forEach(m => { byVehicle[m.RegistrationNo] = (byVehicle[m.RegistrationNo] || 0) + Number(m.TotalKM||0); });
-  const topVehicles = Object.entries(byVehicle)
+  const allVehicles = Object.entries(byVehicle)
     .map(([reg, km]) => ({ reg, km, type: DB.findVehicle(reg)?.VehicleType || '' }))
-    .sort((a,b) => b.km - a.km).slice(0, 6);
-  const maxKm = Math.max(1, ...topVehicles.map(v => v.km));
-  const topHtml = topVehicles.length ? topVehicles.map(v => {
+    .sort((a,b) => b.km - a.km);
+  const maxKm = Math.max(1, ...allVehicles.map(v => v.km));
+  const topHtml = allVehicles.length ? allVehicles.map(v => {
     const w = Math.max(6, Math.round((v.km / maxKm) * 100));
     return `<div class="dsc-rank">
       <div class="dsc-rank-name"><strong>${escapeHtml(v.reg)}</strong><span>${escapeHtml(v.type)}</span></div>
@@ -1212,7 +1206,7 @@ function buildDashboardShareCard(f, rows, days, activeDriver, totalKm, vehiclesU
         <div class="dsc-bar-wrap">${daysHtml}</div>
       </div>
       <div class="dsc-section">
-        <div class="dsc-section-title">Top Vehicles by Distance</div>
+        <div class="dsc-section-title">Vehicles by KM (${allVehicles.length} vehicle${allVehicles.length === 1 ? '' : 's'})</div>
         <div class="dsc-rank-wrap">${topHtml}</div>
       </div>
     </div>
