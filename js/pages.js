@@ -1447,8 +1447,14 @@ function renderSettingsPage(container){
     if (nw.length < 6){ fail('New password must be at least 6 characters.'); return; }
     if (nw !== cf){ fail('New password and confirmation do not match.'); return; }
     try {
-      const cred = FB.EmailAuthProvider.credential(DB.emailFor(App.user.Username), cur);
+      const currentEmail = FB.auth.currentUser?.email || DB.emailFor(App.user.Username);
+      const cred = FB.EmailAuthProvider.credential(currentEmail, cur);
       await FB.reauthenticateWithCredential(FB.auth.currentUser, cred);
+      const target = DB.emailFor(App.user.Username);
+      if (FB.auth.currentUser.email !== target){
+        try { await FB.updateEmail(FB.auth.currentUser, target); }
+        catch (migErr){ console.warn('Email migration deferred:', migErr?.code || migErr); }
+      }
       await FB.updatePassword(FB.auth.currentUser, nw);
       DB.logAudit(App.user, 'Updated', 'User', App.user.Username, 'Password changed');
       errBox.hidden = true;

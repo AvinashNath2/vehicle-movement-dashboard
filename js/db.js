@@ -59,6 +59,19 @@ const DB = {
   },
   resetInboxDisplay(){ return RESET_INBOX; },
 
+  async _signInWithFallback(auth, username, password){
+    const credentialCodes = ['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password', 'auth/invalid-email'];
+    try {
+      return await FB.signInWithEmailAndPassword(auth, this.emailFor(username), password);
+    } catch (primaryErr){
+      if (!credentialCodes.includes(primaryErr.code)) throw primaryErr;
+      const result = await FB.signInWithEmailAndPassword(auth, this.legacyEmailFor(username), password);
+      try { await FB.updateEmail(auth.currentUser, this.emailFor(username)); }
+      catch (migErr){ console.warn('Legacy email migration deferred:', migErr?.code || migErr); }
+      return result;
+    }
+  },
+
   /* ---------------- live subscriptions ---------------- */
   async init(){
     if (!window.FB) throw new Error('Firebase SDK did not load — check your internet connection.');
@@ -292,7 +305,7 @@ const DB = {
     const secondary = FB.getApps().some(a => a.name === appName)
       ? FB.getApp(appName) : FB.initializeApp(FB.firebaseConfig, appName);
     const secondaryAuth = FB.getAuth(secondary);
-    await FB.signInWithEmailAndPassword(secondaryAuth, this.emailFor(oldUsername), currentPw);
+    await this._signInWithFallback(secondaryAuth, oldUsername, currentPw);
     await FB.updateEmail(secondaryAuth.currentUser, this.emailFor(newName));
     await FB.signOut(secondaryAuth);
     const oldUser = this.findUser(oldUsername);
@@ -313,7 +326,7 @@ const DB = {
     const secondary = FB.getApps().some(a => a.name === appName)
       ? FB.getApp(appName) : FB.initializeApp(FB.firebaseConfig, appName);
     const secondaryAuth = FB.getAuth(secondary);
-    await FB.signInWithEmailAndPassword(secondaryAuth, this.emailFor(username), currentPw);
+    await this._signInWithFallback(secondaryAuth, username, currentPw);
     await FB.updatePassword(secondaryAuth.currentUser, newPw);
     await FB.signOut(secondaryAuth);
     this.logAudit(adminUser, 'Updated', 'User', username, 'Password reset by admin');
