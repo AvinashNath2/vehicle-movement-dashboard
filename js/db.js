@@ -339,6 +339,24 @@ const DB = {
     await FB.sendPasswordResetEmail(FB.auth, this.emailFor(username));
     this.logAudit(adminUser, 'Updated', 'User', username, `Password reset link sent to ${RESET_INBOX}`);
   },
+  async setRecoveryEmail(newEmail, currentPassword, user){
+    const email = String(newEmail || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email address.');
+    const currentEmail = FB.auth.currentUser?.email;
+    if (!currentEmail) throw new Error('Not signed in.');
+    const cred = FB.EmailAuthProvider.credential(currentEmail, currentPassword);
+    await FB.reauthenticateWithCredential(FB.auth.currentUser, cred);
+    await FB.updateEmail(FB.auth.currentUser, email);
+    await FB.updateDoc(FB.doc(FB.db, 'users', user.Username), { RecoveryEmail: email });
+    user.RecoveryEmail = email;
+    this.logAudit(user, 'Updated', 'User', user.Username, `Recovery email set to ${email}`);
+    return email;
+  },
+  async sendPasswordResetToEmail(email){
+    const addr = String(email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr)) throw new Error('Enter a valid email address.');
+    await FB.sendPasswordResetEmail(FB.auth, addr);
+  },
   setUserActive(username, active, user){
     const u = this.findUser(username);
     if (!u) return null;

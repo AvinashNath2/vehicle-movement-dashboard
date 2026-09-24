@@ -58,7 +58,17 @@ function driverLabel(driver){
 function renderDashboardPage(container){
   const f = App.filters.dashboard;
   const activeDriver = driverLabel(f.driver);
+  const showRecoveryNudge = !App.user.RecoveryEmail;
   container.innerHTML = `
+    ${showRecoveryNudge ? `
+      <div id="rec-nudge" class="card card-pad" style="margin-bottom:14px;background:#FFF7E6;border:1px solid #F4C97C;color:#7A4A00;display:flex;gap:12px;align-items:flex-start">
+        <div style="flex-shrink:0;margin-top:2px">${icon('info')}</div>
+        <div style="flex:1;font-size:13.5px;line-height:1.55">
+          <strong>Set a recovery email.</strong> Add one from Settings so you can reset your password yourself if you forget it. Without one, only an admin can help you recover access.
+        </div>
+        <button class="btn btn-outline" id="rec-nudge-go" type="button" style="flex-shrink:0">Set now</button>
+      </div>
+    ` : ''}
     <div class="card card-pad filter-bar">
       <div class="field"><label>From Date</label><input type="date" id="db-from" value="${f.from}"></div>
       <div class="field"><label>To Date</label><input type="date" id="db-to" value="${f.to}"></div>
@@ -97,6 +107,7 @@ function renderDashboardPage(container){
 
   wireSearchableSelect('db-vehicle');
   wireSearchableSelect('db-driver');
+  $('#rec-nudge-go')?.addEventListener('click', () => { location.hash = '#/settings'; });
   $('#db-apply').addEventListener('click', () => {
     f.from = $('#db-from').value || todayISO();
     f.to = $('#db-to').value || todayISO();
@@ -1357,6 +1368,19 @@ function renderSettingsPage(container){
           <div id="pw-error" class="error-text" hidden></div>
           <button class="btn btn-primary btn-block" type="submit">Update Password</button>
         </form>
+
+        <div class="section-title">Recovery Email</div>
+        ${App.user.RecoveryEmail
+          ? `<p class="helper-text" style="margin:0 0 10px">Password reset links go to <strong>${escapeHtml(App.user.RecoveryEmail)}</strong>. You can update it below.</p>`
+          : `<div class="helper-text" style="margin:0 0 10px;padding:10px 12px;background:#FFF7E6;border:1px solid #F4C97C;border-radius:8px;color:#7A4A00">
+              <strong>Not set.</strong> Add a personal email so you can reset your password on your own if you forget it. Without this, you'll need an admin to reset it for you.
+             </div>`}
+        <form id="rec-email-form">
+          <div class="field"><label>Recovery Email</label><input type="email" id="rec-email" placeholder="you@example.com" value="${escapeHtml(App.user.RecoveryEmail || '')}"></div>
+          <div class="field"><label>Current Password (to confirm)</label><input type="password" id="rec-current-pw"></div>
+          <div id="rec-error" class="error-text" hidden></div>
+          <button class="btn btn-primary btn-block" type="submit">${App.user.RecoveryEmail ? 'Update Recovery Email' : 'Set Recovery Email'}</button>
+        </form>
       </div>
 
       ${isAdmin ? `
@@ -1464,6 +1488,28 @@ function renderSettingsPage(container){
       if (['auth/invalid-credential', 'auth/wrong-password'].includes(err.code)) fail('Current password is incorrect.');
       else if (err.code === 'auth/weak-password') fail('New password is too weak.');
       else { fail('Could not update password: ' + (err.message || err.code)); console.error(err); }
+    }
+  });
+
+  $('#rec-email-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = $('#rec-email').value.trim();
+    const cur = $('#rec-current-pw').value;
+    const errBox = $('#rec-error');
+    const fail = (msg) => { errBox.textContent = msg; errBox.hidden = false; };
+    if (!email){ fail('Enter your recovery email.'); return; }
+    if (!cur){ fail('Enter your current password to confirm.'); return; }
+    try {
+      await DB.setRecoveryEmail(email, cur, App.user);
+      errBox.hidden = true;
+      toast('success', 'Recovery email saved', `Reset links will now go to ${email}.`);
+      renderPage('settings');
+    } catch (err){
+      if (['auth/invalid-credential', 'auth/wrong-password'].includes(err.code)) fail('Current password is incorrect.');
+      else if (err.code === 'auth/email-already-in-use') fail('That email is already used by another account.');
+      else if (err.code === 'auth/invalid-email') fail('That email address looks invalid.');
+      else if (err.code === 'auth/operation-not-allowed') fail('Firebase is blocking email changes. Ask your admin to disable "Email enumeration protection" in Firebase Console → Authentication → Settings.');
+      else { fail('Could not save recovery email: ' + (err.message || err.code)); console.error(err); }
     }
   });
 

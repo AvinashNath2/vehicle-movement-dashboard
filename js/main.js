@@ -121,10 +121,11 @@ function enterApp(){
 
 async function handleLogin(e){
   e.preventDefault();
-  const username = $('#login-username').value.trim().toLowerCase();
+  const rawInput = $('#login-username').value.trim();
+  const input = rawInput.toLowerCase();
   const password = $('#login-password').value;
   const errBox = $('#login-error');
-  if (!username || !password){
+  if (!input || !password){
     errBox.textContent = 'Please enter both username and password.';
     errBox.hidden = false;
     return;
@@ -133,22 +134,27 @@ async function handleLogin(e){
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Signing in…';
   const fail = (msg) => { errBox.textContent = msg; errBox.hidden = false; };
+  const isEmail = input.includes('@');
   try {
-    // Try modern gmail-alias login first; fall back to the pre-migration
-    // `@vmd-fleet.app` email so existing accounts still work. If the legacy
-    // sign-in succeeds, migrate the auth email transparently so next time
-    // the modern path takes over — and password-reset links can be sent.
+    // Accept either a username or a recovery email. If email, sign in directly;
+    // otherwise try modern gmail-alias first, then legacy @vmd-fleet.app.
     const credentialCodes = ['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password', 'auth/invalid-email'];
-    try {
-      await FB.signInWithEmailAndPassword(FB.auth, DB.emailFor(username), password);
-    } catch (primaryErr){
-      if (!credentialCodes.includes(primaryErr.code)) throw primaryErr;
-      await FB.signInWithEmailAndPassword(FB.auth, DB.legacyEmailFor(username), password);
-      try { await FB.updateEmail(FB.auth.currentUser, DB.emailFor(username)); }
-      catch (migErr){ console.warn('Legacy email migration deferred:', migErr?.code || migErr); }
+    if (isEmail){
+      await FB.signInWithEmailAndPassword(FB.auth, input, password);
+    } else {
+      try {
+        await FB.signInWithEmailAndPassword(FB.auth, DB.emailFor(input), password);
+      } catch (primaryErr){
+        if (!credentialCodes.includes(primaryErr.code)) throw primaryErr;
+        await FB.signInWithEmailAndPassword(FB.auth, DB.legacyEmailFor(input), password);
+        try { await FB.updateEmail(FB.auth.currentUser, DB.emailFor(input)); }
+        catch (migErr){ console.warn('Legacy email migration deferred:', migErr?.code || migErr); }
+      }
     }
     await DB.init();
-    const u = DB.findUser(username);
+    const u = isEmail
+      ? DB.users.find(x => (x.RecoveryEmail || '').toLowerCase() === input)
+      : DB.findUser(input);
     if (!u || String(u.Active).toLowerCase() === 'no'){
       DB.teardown();
       await FB.signOut(FB.auth);
@@ -283,7 +289,51 @@ DB.onRemoteChange = debounce(() => {
   renderPage(App.route);
 }, 300);
 
+function openForgotPasswordModal(){
+  openModal({
+    title: 'Reset your password',
+    bodyHtml: `
+      <p style="margin:0 0 12px;font-size:14px;line-height:1.55;color:var(--text-muted)">
+        Enter the recovery email you set in Settings. We'll send you a link to set a new password.
+      </p>
+      <div class="field"><label>Recovery Email</label><input type="email" id="fp-email" placeholder="you@example.com" autocomplete="email"></div>
+      <div id="fp-info" class="helper-text" hidden style="margin:6px 0 0;padding:10px 12px;background:#EEFBF3;border:1px solid #A6E3BF;border-radius:8px;color:#0F5132"></div>
+      <div id="fp-error" class="error-text" hidden style="margin-top:6px"></div>
+    `,
+    footerHtml: `
+      <button class="btn btn-outline" data-close-modal type="button" style="margin-right:auto">Cancel</button>
+      <button class="btn btn-primary" id="fp-send" type="button">Send Reset Link</button>
+    `,
+    onMount: (body) => {
+      const emailInput = body.querySelector('#fp-email');
+      const errBox = body.querySelector('#fp-error');
+      const infoBox = body.querySelector('#fp-info');
+      const btn = body.querySelector('#fp-send');
+      emailInput.focus();
+      btn.addEventListener('click', async () => {
+        const email = emailInput.value.trim();
+        errBox.hidden = true; infoBox.hidden = true;
+        if (!email){ errBox.textContent = 'Enter your recovery email.'; errBox.hidden = false; return; }
+        btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Sending…';
+        try {
+          await DB.sendPasswordResetToEmail(email);
+          infoBox.innerHTML = `If an account exists with <strong>${email}</strong>, a reset link has been sent. Check your inbox (and spam folder). If you don't see it in a few minutes, ask an admin for help.`;
+          infoBox.hidden = false;
+          btn.innerHTML = 'Sent';
+          setTimeout(() => closeModal(), 4000);
+        } catch (err){
+          errBox.textContent = err.message || 'Could not send reset link. Try again in a moment.';
+          errBox.hidden = false;
+          btn.disabled = false; btn.textContent = 'Send Reset Link';
+        }
+      });
+    },
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   $('#login-form').addEventListener('submit', handleLogin);
+  const forgot = $('#login-forgot');
+  if (forgot) forgot.addEventListener('click', (e) => { e.preventDefault(); openForgotPasswordModal(); });
   boot();
 });

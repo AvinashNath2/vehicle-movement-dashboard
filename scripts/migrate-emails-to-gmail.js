@@ -46,7 +46,8 @@
        username, not by email).
    ========================================================================== */
 
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
 
 const LEGACY_DOMAIN = 'vmd-fleet.app';
 const INBOX = process.env.INBOX || 'avinashnath2@gmail.com';
@@ -70,8 +71,8 @@ function aliasFor(username){
   return `${INBOX_LOCAL}+${String(username).trim().toLowerCase()}@${INBOX_DOMAIN}`;
 }
 
-admin.initializeApp({ credential: admin.credential.cert(require(SERVICE_ACCOUNT_PATH)) });
-const auth = admin.auth();
+const app = initializeApp({ credential: cert(require(SERVICE_ACCOUNT_PATH)) });
+const auth = getAuth(app);
 
 (async () => {
   console.log(`\n=== Firebase Auth email migration ===`);
