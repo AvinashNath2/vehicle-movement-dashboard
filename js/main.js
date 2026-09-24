@@ -168,6 +168,8 @@ async function handleLogin(e){
     if (!isAdmin()) App.filters.movements.view = 'landing';
     history.replaceState(null, '', '#/' + defaultRoute());
     enterApp();
+    // Mandatory recovery email: block the app until one is set.
+    if (!u.RecoveryEmail) openMandatoryRecoveryEmailModal(password);
   } catch (err){
     if (['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password', 'auth/invalid-email'].includes(err.code)){
       fail('Invalid username or password.');
@@ -288,6 +290,58 @@ DB.onRemoteChange = debounce(() => {
   if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;
   renderPage(App.route);
 }, 300);
+
+function openMandatoryRecoveryEmailModal(loginPassword){
+  openModal({
+    title: 'Set a recovery email to continue',
+    blocking: true,
+    bodyHtml: `
+      <div style="padding:10px 12px;background:#FFF7E6;border:1px solid #F4C97C;border-radius:8px;color:#7A4A00;font-size:13.5px;line-height:1.55;margin:0 0 14px">
+        <strong>Required before you can use the app.</strong> Add a personal email so you can reset your password on your own if you forget it. Without this, you'd be locked out until an admin resets it for you.
+      </div>
+      <div class="field"><label>Recovery Email</label><input type="email" id="mr-email" placeholder="you@example.com" autocomplete="email"></div>
+      <div class="field"><label>Confirm Password</label><input type="password" id="mr-pw" placeholder="Your login password" autocomplete="current-password"></div>
+      <div id="mr-error" class="error-text" hidden style="margin-top:6px"></div>
+    `,
+    footerHtml: `
+      <button class="btn btn-outline" id="mr-logout" type="button" style="margin-right:auto">Sign out</button>
+      <button class="btn btn-primary" id="mr-save" type="button">Save & Continue</button>
+    `,
+    onMount: (body) => {
+      const emailInput = body.querySelector('#mr-email');
+      const pwInput = body.querySelector('#mr-pw');
+      const errBox = body.querySelector('#mr-error');
+      const saveBtn = body.querySelector('#mr-save');
+      const logoutBtn = body.querySelector('#mr-logout');
+      // If we still have the login password in memory, pre-fill it — saves a step.
+      if (loginPassword){ pwInput.value = loginPassword; }
+      emailInput.focus();
+      logoutBtn.addEventListener('click', async () => {
+        try { await FB.signOut(FB.auth); } catch(_){}
+        location.reload();
+      });
+      saveBtn.addEventListener('click', async () => {
+        const email = emailInput.value.trim();
+        const pw = pwInput.value;
+        errBox.hidden = true;
+        if (!email){ errBox.textContent = 'Enter a recovery email.'; errBox.hidden = false; return; }
+        if (!pw){ errBox.textContent = 'Enter your login password.'; errBox.hidden = false; return; }
+        saveBtn.disabled = true; saveBtn.innerHTML = '<span class="spinner"></span> Saving…';
+        try {
+          await DB.setRecoveryEmail(email, pw, App.user);
+          closeModal();
+          toast('success', 'Recovery email saved', `Reset links will now go to ${email}.`);
+        } catch (err){
+          console.error('mandatory setRecoveryEmail failed:', err);
+          errBox.textContent = DB.friendlyRecoveryEmailError(err);
+          errBox.hidden = false;
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save & Continue';
+        }
+      });
+    },
+  });
+}
 
 function openForgotPasswordModal(){
   openModal({

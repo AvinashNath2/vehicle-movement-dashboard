@@ -1505,11 +1505,8 @@ function renderSettingsPage(container){
       toast('success', 'Recovery email saved', `Reset links will now go to ${email}.`);
       renderPage('settings');
     } catch (err){
-      if (['auth/invalid-credential', 'auth/wrong-password'].includes(err.code)) fail('Current password is incorrect.');
-      else if (err.code === 'auth/email-already-in-use') fail('That email is already used by another account.');
-      else if (err.code === 'auth/invalid-email') fail('That email address looks invalid.');
-      else if (err.code === 'auth/operation-not-allowed') fail('Firebase is blocking email changes. Ask your admin to disable "Email enumeration protection" in Firebase Console → Authentication → Settings.');
-      else { fail('Could not save recovery email: ' + (err.message || err.code)); console.error(err); }
+      console.error('setRecoveryEmail failed:', err);
+      fail(DB.friendlyRecoveryEmailError(err));
     }
   });
 

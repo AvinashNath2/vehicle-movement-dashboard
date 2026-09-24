@@ -341,9 +341,16 @@ const DB = {
   },
   async setRecoveryEmail(newEmail, currentPassword, user){
     const email = String(newEmail || '').trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email address.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw Object.assign(new Error('Enter a valid email address.'), { code: 'app/invalid-email' });
+    if (user.RecoveryEmail && email === String(user.RecoveryEmail).toLowerCase()){
+      throw Object.assign(new Error('That is already your recovery email. Enter a different one.'), { code: 'app/same-as-current' });
+    }
+    if (this.users.some(u => u.Username !== user.Username && String(u.RecoveryEmail || '').toLowerCase() === email)){
+      throw Object.assign(new Error('That email is already used by another account. Enter a different one.'), { code: 'app/email-taken' });
+    }
     const currentEmail = FB.auth.currentUser?.email;
-    if (!currentEmail) throw new Error('Not signed in.');
+    if (!currentEmail) throw Object.assign(new Error('You are not signed in. Reload the page and log in again.'), { code: 'app/no-session' });
+    if (!currentPassword) throw Object.assign(new Error('Enter your current password to confirm.'), { code: 'app/no-password' });
     const cred = FB.EmailAuthProvider.credential(currentEmail, currentPassword);
     await FB.reauthenticateWithCredential(FB.auth.currentUser, cred);
     await FB.updateEmail(FB.auth.currentUser, email);
@@ -351,6 +358,34 @@ const DB = {
     user.RecoveryEmail = email;
     this.logAudit(user, 'Updated', 'User', user.Username, `Recovery email set to ${email}`);
     return email;
+  },
+
+  friendlyRecoveryEmailError(err){
+    switch (err?.code){
+      case 'app/invalid-email':
+      case 'app/same-as-current':
+      case 'app/email-taken':
+      case 'app/no-session':
+      case 'app/no-password':
+        return err.message;
+      case 'auth/invalid-credential':
+      case 'auth/wrong-password':
+        return 'Current password is incorrect. Try again.';
+      case 'auth/too-many-requests':
+        return 'Too many attempts. Wait a few minutes and try again.';
+      case 'auth/network-request-failed':
+        return 'Network error. Check your connection and try again.';
+      case 'auth/invalid-email':
+        return 'That email address is invalid.';
+      case 'auth/email-already-in-use':
+        return 'That email is already used by another Firebase account. Enter a different one.';
+      case 'auth/requires-recent-login':
+        return 'Your session is too old. Sign out and sign back in, then try again.';
+      case 'auth/operation-not-allowed':
+        return 'Firebase is blocking this change. Ask the admin to open Firebase Console → Authentication → Settings → uncheck "Email enumeration protection", then try again.';
+      default:
+        return `Could not save recovery email: ${err?.message || err?.code || 'unknown error'}`;
+    }
   },
   async sendPasswordResetToEmail(email){
     const addr = String(email || '').trim().toLowerCase();

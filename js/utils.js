@@ -112,14 +112,14 @@ function toast(type, title, msg){
 }
 
 /* ---------------- modal ---------------- */
-function openModal({ title, bodyHtml, large, footerHtml, onMount, onClose }){
+function openModal({ title, bodyHtml, large, footerHtml, onMount, onClose, blocking }){
   closeModal();
   const backdrop = el(`
     <div class="modal-backdrop" id="active-modal">
       <div class="modal ${large ? 'modal-lg' : ''}">
         <div class="modal-head">
           <h3>${escapeHtml(title)}</h3>
-          <button class="icon-btn" data-close-modal type="button">${icon('x')}</button>
+          ${blocking ? '' : `<button class="icon-btn" data-close-modal type="button">${icon('x')}</button>`}
         </div>
         <div class="modal-body">${bodyHtml}</div>
         ${footerHtml ? `<div class="modal-foot">${footerHtml}</div>` : ''}
@@ -127,7 +127,7 @@ function openModal({ title, bodyHtml, large, footerHtml, onMount, onClose }){
     </div>`);
   document.body.appendChild(backdrop);
   document.body.style.overflow = 'hidden';
-  backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) closeModal(); });
+  if (!blocking) backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) closeModal(); });
   $$('[data-close-modal]', backdrop).forEach(b => b.addEventListener('click', closeModal));
   backdrop._onClose = onClose;
   if (onMount) onMount(backdrop);
