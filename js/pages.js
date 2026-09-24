@@ -1106,7 +1106,7 @@ function buildReportShareCard(f, rows, totalKm, vehiclesUsed){
       <td class="rsc-num">${m.OpeningTime ? formatTime(m.OpeningTime) : '—'}</td>
       <td class="rsc-num">${m.Status==='Completed' && m.ClosingTime ? formatTime(m.ClosingTime) : '—'}</td>
       <td><strong>${escapeHtml(m.RegistrationNo)}</strong></td>
-      <td class="rsc-wrap">${escapeHtml(m.VehicleType)}</td>
+      <td>${escapeHtml(m.VehicleType)}</td>
       <td>${escapeHtml(m.DriverName)}</td>
       <td class="rsc-wrap">${escapeHtml(m.RequestedBy) || '—'}</td>
       <td class="rsc-num">${formatNumber(m.OpeningKM)}</td>
