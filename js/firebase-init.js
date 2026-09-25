@@ -9,11 +9,12 @@ import { initializeApp, getApp, getApps } from 'https://www.gstatic.com/firebase
 import {
   getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
   onAuthStateChanged, signOut, updatePassword, updateEmail,
+  verifyBeforeUpdateEmail,
   reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail,
 } from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, setDoc, updateDoc, deleteDoc, getDocs, onSnapshot, writeBatch,
+  collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch,
 } from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js';
 
 const firebaseConfig = {
@@ -43,6 +44,6 @@ window.FB = {
   initializeApp, getApp, getApps, getAuth,
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
   onAuthStateChanged, signOut, updatePassword, sendPasswordResetEmail,
-  reauthenticateWithCredential, EmailAuthProvider, updateEmail,
-  collection, doc, setDoc, updateDoc, deleteDoc, getDocs, onSnapshot, writeBatch,
+  reauthenticateWithCredential, EmailAuthProvider, updateEmail, verifyBeforeUpdateEmail,
+  collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch,
 };

@@ -1,9 +1,26 @@
 rules_version = '2';
 
 // Paste this into Firebase Console → Firestore Database → Rules → Publish.
-// Only signed-in users (Firebase Authentication) can read or write anything.
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Public username-to-auth-email lookup. Anyone can read a single doc so the
+    // login form can translate a Force No. into the address it must call
+    // signInWithEmailAndPassword with. Only authenticated users can write, and
+    // the app writes on every successful login to self-heal drift.
+    //
+    // Privacy note: this is an intentional trade-off. Since Firestore rules
+    // must allow the read to happen before the user is authenticated, anyone
+    // can iterate Force Nos to discover the associated recovery email. Force
+    // Nos are semi-public (printed on unit ID cards) and recovery emails are
+    // user-chosen personal Gmail addresses — this leak is accepted so that
+    // Force No. remains the sole user-facing identifier without needing a
+    // Cloud Function.
+    match /usernameLookup/{forceNo} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Everything else stays authenticated-only.
     match /{document=**} {
       allow read, write: if request.auth != null;
     }

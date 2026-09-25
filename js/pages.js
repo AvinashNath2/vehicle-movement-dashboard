@@ -1371,15 +1371,25 @@ function renderSettingsPage(container){
 
         <div class="section-title">Recovery Email</div>
         ${App.user.RecoveryEmail
-          ? `<p class="helper-text" style="margin:0 0 10px">Password reset links go to <strong>${escapeHtml(App.user.RecoveryEmail)}</strong>. You can update it below.</p>`
+          ? `<p class="helper-text" style="margin:0 0 10px">Password reset links go to <strong>${escapeHtml(App.user.RecoveryEmail)}</strong>. Enter a different address below to change it — Firebase will send a verification link to the new address before the change takes effect.</p>`
           : `<div class="helper-text" style="margin:0 0 10px;padding:10px 12px;background:#FFF7E6;border:1px solid #F4C97C;border-radius:8px;color:#7A4A00">
               <strong>Not set.</strong> Add a personal email so you can reset your password on your own if you forget it. Without this, you'll need an admin to reset it for you.
              </div>`}
         <form id="rec-email-form">
-          <div class="field"><label>Recovery Email</label><input type="email" id="rec-email" placeholder="you@example.com" value="${escapeHtml(App.user.RecoveryEmail || '')}"></div>
+          <div class="field"><label>Recovery Email</label><input type="email" id="rec-email" placeholder="you@example.com" value=""></div>
           <div class="field"><label>Current Password (to confirm)</label><input type="password" id="rec-current-pw"></div>
           <div id="rec-error" class="error-text" hidden></div>
-          <button class="btn btn-primary btn-block" type="submit">${App.user.RecoveryEmail ? 'Update Recovery Email' : 'Set Recovery Email'}</button>
+          <div id="rec-pending" hidden style="padding:12px 14px;background:#EEFBF3;border:1px solid #A6E3BF;border-radius:8px;color:#0F5132;font-size:13.5px;line-height:1.6;margin-top:8px">
+            <strong>Verification link sent.</strong> Check <span id="rec-pending-email"></span> and click the link. Then come back and press <em>"I've clicked the link"</em>.
+          </div>
+          <div id="rec-actions">
+            <button class="btn btn-primary btn-block" type="submit">${App.user.RecoveryEmail ? 'Change Recovery Email' : 'Set Recovery Email'}</button>
+          </div>
+          <div id="rec-actions-pending" hidden style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn btn-outline" id="rec-cancel" type="button" style="flex:1">Cancel</button>
+            <button class="btn btn-outline" id="rec-resend" type="button" style="flex:1">Resend link</button>
+            <button class="btn btn-primary" id="rec-check" type="button" style="flex:2">I've clicked the link</button>
+          </div>
         </form>
       </div>
 
@@ -1491,24 +1501,78 @@ function renderSettingsPage(container){
     }
   });
 
+  let recPendingEmail = null;
+  let recPendingPw = null;
+  let recPollTimer = null;
+  function recStopPolling(){ if (recPollTimer){ clearInterval(recPollTimer); recPollTimer = null; } }
+  function recShowPending(email){
+    recPendingEmail = email;
+    $('#rec-email').disabled = true;
+    $('#rec-current-pw').disabled = true;
+    $('#rec-pending-email').textContent = email;
+    $('#rec-pending').hidden = false;
+    $('#rec-actions').hidden = true;
+    $('#rec-actions-pending').hidden = false;
+    $('#rec-actions-pending').style.display = 'flex';
+    $('#rec-error').hidden = true;
+  }
+  function recResetToInitial(){
+    recStopPolling();
+    recPendingEmail = null;
+    $('#rec-email').disabled = false;
+    $('#rec-current-pw').disabled = false;
+    $('#rec-pending').hidden = true;
+    $('#rec-actions').hidden = false;
+    $('#rec-actions-pending').hidden = true;
+  }
+  async function recCheckOnce(byUser){
+    if (!recPendingEmail) return;
+    try {
+      const res = await DB.pollForVerification(recPendingEmail, App.user);
+      if (res.verified){
+        recStopPolling();
+        toast('success', 'Recovery email verified', `Reset links will now go to ${res.email}.`);
+        renderPage('settings');
+        return;
+      }
+      if (byUser){
+        const err = $('#rec-error');
+        err.textContent = "We haven't seen the verification click yet. Give it a few seconds and try again.";
+        err.hidden = false;
+      }
+    } catch (err){ console.warn('pollForVerification failed:', err); }
+  }
   $('#rec-email-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = $('#rec-email').value.trim();
     const cur = $('#rec-current-pw').value;
     const errBox = $('#rec-error');
     const fail = (msg) => { errBox.textContent = msg; errBox.hidden = false; };
-    if (!email){ fail('Enter your recovery email.'); return; }
+    if (!email){ fail('Enter a recovery email.'); return; }
     if (!cur){ fail('Enter your current password to confirm.'); return; }
     try {
-      await DB.setRecoveryEmail(email, cur, App.user);
-      errBox.hidden = true;
-      toast('success', 'Recovery email saved', `Reset links will now go to ${email}.`);
-      renderPage('settings');
+      await DB.beginRecoveryEmailVerification(email, cur, App.user);
+      recPendingPw = cur;
+      recShowPending(email);
+      recPollTimer = setInterval(() => recCheckOnce(false), 5000);
     } catch (err){
-      console.error('setRecoveryEmail failed:', err);
+      console.error('beginRecoveryEmailVerification failed:', err);
       fail(DB.friendlyRecoveryEmailError(err));
     }
   });
+  $('#rec-cancel')?.addEventListener('click', () => recResetToInitial());
+  $('#rec-resend')?.addEventListener('click', async () => {
+    if (!recPendingEmail || !recPendingPw) return;
+    const errBox = $('#rec-error'); errBox.hidden = true;
+    try {
+      await DB.beginRecoveryEmailVerification(recPendingEmail, recPendingPw, App.user);
+      toast('info', 'Verification link resent', `A fresh link is on the way to ${recPendingEmail}.`);
+    } catch (err){
+      errBox.textContent = DB.friendlyRecoveryEmailError(err);
+      errBox.hidden = false;
+    }
+  });
+  $('#rec-check')?.addEventListener('click', () => recCheckOnce(true));
 
   if (!isAdmin) return;
 

@@ -59,17 +59,51 @@ const DB = {
   },
   resetInboxDisplay(){ return RESET_INBOX; },
 
-  async _signInWithFallback(auth, username, password){
-    const credentialCodes = ['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password', 'auth/invalid-email'];
+  // Reads the /usernameLookup/<forceNo> doc unauthenticated (rules allow public
+  // read). Returns the currently-known Firebase Auth email for that Force No.,
+  // or null if the lookup doesn't exist yet.
+  async lookupAuthEmail(forceNo){
+    const key = String(forceNo || '').trim().toLowerCase();
+    if (!key) return null;
     try {
-      return await FB.signInWithEmailAndPassword(auth, this.emailFor(username), password);
-    } catch (primaryErr){
-      if (!credentialCodes.includes(primaryErr.code)) throw primaryErr;
-      const result = await FB.signInWithEmailAndPassword(auth, this.legacyEmailFor(username), password);
-      try { await FB.updateEmail(auth.currentUser, this.emailFor(username)); }
-      catch (migErr){ console.warn('Legacy email migration deferred:', migErr?.code || migErr); }
-      return result;
+      const snap = await FB.getDoc(FB.doc(FB.db, 'usernameLookup', key));
+      return snap.exists() ? (snap.data().authEmail || null) : null;
+    } catch (err){
+      console.warn('lookupAuthEmail failed:', err?.code || err?.message);
+      return null;
     }
+  },
+
+  // Called on every successful sign-in path so the lookup self-heals when the
+  // auth email drifts (renames, out-of-band Firebase Console edits, or an
+  // earlier verifyBeforeUpdateEmail that finished on another device).
+  async writeUsernameLookup(forceNo, authEmail){
+    const key = String(forceNo || '').trim().toLowerCase();
+    const email = String(authEmail || '').trim().toLowerCase();
+    if (!key || !email) return;
+    try {
+      await FB.setDoc(FB.doc(FB.db, 'usernameLookup', key), {
+        authEmail: email,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+    } catch (err){
+      // Non-fatal — the user is still signed in and can retry later.
+      console.warn('writeUsernameLookup failed:', err?.code || err?.message);
+    }
+  },
+
+  async _signInWithFallback(auth, username, password){
+    const codes = ['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password', 'auth/invalid-email'];
+    const cached = await this.lookupAuthEmail(username);
+    const candidates = [];
+    if (cached) candidates.push(cached);
+    candidates.push(this.emailFor(username), this.legacyEmailFor(username));
+    let lastErr;
+    for (const email of candidates){
+      try { return await FB.signInWithEmailAndPassword(auth, email, password); }
+      catch (err){ if (!codes.includes(err.code)) throw err; lastErr = err; }
+    }
+    throw lastErr;
   },
 
   /* ---------------- live subscriptions ---------------- */
@@ -339,7 +373,13 @@ const DB = {
     await FB.sendPasswordResetEmail(FB.auth, this.emailFor(username));
     this.logAudit(adminUser, 'Updated', 'User', username, `Password reset link sent to ${RESET_INBOX}`);
   },
-  async setRecoveryEmail(newEmail, currentPassword, user){
+  // Kicks off verification for a new recovery email. Reauths the current
+  // session, then asks Firebase to send a verification link to `newEmail`.
+  // Nothing about the Firebase Auth email or Firestore profile changes yet —
+  // that only happens once the user clicks the link and pollForVerification
+  // detects it. Callers must persist { pendingEmail, sentAt } and use it to
+  // drive the modal's "check your inbox" state.
+  async beginRecoveryEmailVerification(newEmail, currentPassword, user){
     const email = String(newEmail || '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw Object.assign(new Error('Enter a valid email address.'), { code: 'app/invalid-email' });
     if (user.RecoveryEmail && email === String(user.RecoveryEmail).toLowerCase()){
@@ -353,11 +393,29 @@ const DB = {
     if (!currentPassword) throw Object.assign(new Error('Enter your current password to confirm.'), { code: 'app/no-password' });
     const cred = FB.EmailAuthProvider.credential(currentEmail, currentPassword);
     await FB.reauthenticateWithCredential(FB.auth.currentUser, cred);
-    await FB.updateEmail(FB.auth.currentUser, email);
-    await FB.updateDoc(FB.doc(FB.db, 'users', user.Username), { RecoveryEmail: email });
-    user.RecoveryEmail = email;
-    this.logAudit(user, 'Updated', 'User', user.Username, `Recovery email set to ${email}`);
-    return email;
+    await FB.verifyBeforeUpdateEmail(FB.auth.currentUser, email);
+    return { pendingEmail: email, sentAt: new Date().toISOString() };
+  },
+
+  // Called on a timer, on window focus, and on the manual "I've clicked the
+  // link" button. Reloads the Firebase user; if the auth email has flipped to
+  // pendingEmail, forces a fresh ID token (needed before Firestore writes) and
+  // persists the RecoveryEmail on the user's profile + heals usernameLookup.
+  async pollForVerification(pendingEmail, user){
+    if (!FB.auth.currentUser) return { verified: false, reason: 'no-session' };
+    try { await FB.auth.currentUser.reload(); }
+    catch (err){ return { verified: false, reason: err?.code || 'reload-failed' }; }
+    const current = FB.auth.currentUser.email;
+    if (String(current).toLowerCase() !== String(pendingEmail).toLowerCase()){
+      return { verified: false, reason: 'not-yet' };
+    }
+    try { await FB.auth.currentUser.getIdToken(true); }
+    catch (err){ console.warn('getIdToken(true) failed after email change:', err?.code || err?.message); }
+    await FB.updateDoc(FB.doc(FB.db, 'users', user.Username), { RecoveryEmail: current });
+    await this.writeUsernameLookup(user.Username, current);
+    user.RecoveryEmail = current;
+    this.logAudit(user, 'Updated', 'User', user.Username, `Recovery email verified: ${current}`);
+    return { verified: true, email: current };
   },
 
   friendlyRecoveryEmailError(err){
