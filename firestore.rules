@@ -1,28 +1,48 @@
 rules_version = '2';
 
-// Paste this into Firebase Console → Firestore Database → Rules → Publish.
+// There is no Firebase Authentication in this deployment. Login is handled
+// entirely by the client against passwords stored on the users/<forceNo>
+// document (see js/db.js). These rules therefore cannot use request.auth;
+// they instead constrain what fields a write may contain and how large a
+// document may be, so trivial abuse doesn't blow past Spark-plan quotas or
+// pollute the database with unknown collections.
+//
+// This is an intentional trade-off, documented in the app's plan file.
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Public username-to-auth-email lookup. Anyone can read a single doc so the
-    // login form can translate a Force No. into the address it must call
-    // signInWithEmailAndPassword with. Only authenticated users can write, and
-    // the app writes on every successful login to self-heal drift.
-    //
-    // Privacy note: this is an intentional trade-off. Since Firestore rules
-    // must allow the read to happen before the user is authenticated, anyone
-    // can iterate Force Nos to discover the associated recovery email. Force
-    // Nos are semi-public (printed on unit ID cards) and recovery emails are
-    // user-chosen personal Gmail addresses — this leak is accepted so that
-    // Force No. remains the sole user-facing identifier without needing a
-    // Cloud Function.
-    match /usernameLookup/{forceNo} {
+
+    match /users/{forceNo} {
       allow read: if true;
-      allow write: if request.auth != null;
+      // Writes must carry only the fields the client knows about, must fit
+      // in ~4KB, and cannot include arbitrary sub-collections.
+      allow write: if request.resource == null
+        || (
+          request.resource.data.keys().hasOnly([
+            'Username','Password','DisplayName','Role','Active','ForceNo','CreatedAt','UpdatedAt'
+          ])
+          && request.resource.size() < 4096
+        );
     }
 
-    // Everything else stays authenticated-only.
+    match /vehicles/{regNo} {
+      allow read: if true;
+      allow write: if request.resource == null || request.resource.size() < 4096;
+    }
+
+    match /movements/{id} {
+      allow read: if true;
+      allow write: if request.resource == null || request.resource.size() < 8192;
+    }
+
+    match /auditLog/{id} {
+      allow read: if true;
+      allow write: if request.resource == null || request.resource.size() < 4096;
+    }
+
+    // Forbid every other collection so an attacker cannot squat and dump
+    // arbitrary data into the project.
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

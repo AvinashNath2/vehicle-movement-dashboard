@@ -58,17 +58,7 @@ function driverLabel(driver){
 function renderDashboardPage(container){
   const f = App.filters.dashboard;
   const activeDriver = driverLabel(f.driver);
-  const showRecoveryNudge = !App.user.RecoveryEmail;
   container.innerHTML = `
-    ${showRecoveryNudge ? `
-      <div id="rec-nudge" class="card card-pad" style="margin-bottom:14px;background:#FFF7E6;border:1px solid #F4C97C;color:#7A4A00;display:flex;gap:12px;align-items:flex-start">
-        <div style="flex-shrink:0;margin-top:2px">${icon('info')}</div>
-        <div style="flex:1;font-size:13.5px;line-height:1.55">
-          <strong>Set a recovery email.</strong> Add one from Settings so you can reset your password yourself if you forget it. Without one, only an admin can help you recover access.
-        </div>
-        <button class="btn btn-outline" id="rec-nudge-go" type="button" style="flex-shrink:0">Set now</button>
-      </div>
-    ` : ''}
     <div class="card card-pad filter-bar">
       <div class="field"><label>From Date</label><input type="date" id="db-from" value="${f.from}"></div>
       <div class="field"><label>To Date</label><input type="date" id="db-to" value="${f.to}"></div>
@@ -107,7 +97,6 @@ function renderDashboardPage(container){
 
   wireSearchableSelect('db-vehicle');
   wireSearchableSelect('db-driver');
-  $('#rec-nudge-go')?.addEventListener('click', () => { location.hash = '#/settings'; });
   $('#db-apply').addEventListener('click', () => {
     f.from = $('#db-from').value || todayISO();
     f.to = $('#db-to').value || todayISO();
@@ -1362,34 +1351,11 @@ function renderSettingsPage(container){
         <div class="kv-row"><span class="k">Role</span><span class="v">${escapeHtml(App.user.Role)}</span></div>
         <div class="section-title">Change Password</div>
         <form id="pwd-form">
-          <div class="field"><label>Current Password</label><input type="password" id="pw-current"></div>
-          <div class="field"><label>New Password</label><input type="password" id="pw-new"></div>
-          <div class="field"><label>Confirm New Password</label><input type="password" id="pw-confirm"></div>
+          <div class="field"><label>Current Password</label><input type="password" id="pw-current" autocomplete="current-password"></div>
+          <div class="field"><label>New Password</label><input type="password" id="pw-new" autocomplete="new-password"></div>
+          <div class="field"><label>Confirm New Password</label><input type="password" id="pw-confirm" autocomplete="new-password"></div>
           <div id="pw-error" class="error-text" hidden></div>
           <button class="btn btn-primary btn-block" type="submit">Update Password</button>
-        </form>
-
-        <div class="section-title">Recovery Email</div>
-        ${App.user.RecoveryEmail
-          ? `<p class="helper-text" style="margin:0 0 10px">Password reset links go to <strong>${escapeHtml(App.user.RecoveryEmail)}</strong>. Enter a different address below to change it — Firebase will send a verification link to the new address before the change takes effect.</p>`
-          : `<div class="helper-text" style="margin:0 0 10px;padding:10px 12px;background:#FFF7E6;border:1px solid #F4C97C;border-radius:8px;color:#7A4A00">
-              <strong>Not set.</strong> Add a personal email so you can reset your password on your own if you forget it. Without this, you'll need an admin to reset it for you.
-             </div>`}
-        <form id="rec-email-form">
-          <div class="field"><label>Recovery Email</label><input type="email" id="rec-email" placeholder="you@example.com" value=""></div>
-          <div class="field"><label>Current Password (to confirm)</label><input type="password" id="rec-current-pw"></div>
-          <div id="rec-error" class="error-text" hidden></div>
-          <div id="rec-pending" hidden style="padding:12px 14px;background:#EEFBF3;border:1px solid #A6E3BF;border-radius:8px;color:#0F5132;font-size:13.5px;line-height:1.6;margin-top:8px">
-            <strong>Verification link sent.</strong> Check <span id="rec-pending-email"></span> and click the link. Then come back and press <em>"I've clicked the link"</em>.
-          </div>
-          <div id="rec-actions">
-            <button class="btn btn-primary btn-block" type="submit">${App.user.RecoveryEmail ? 'Change Recovery Email' : 'Set Recovery Email'}</button>
-          </div>
-          <div id="rec-actions-pending" hidden style="display:flex;gap:8px;margin-top:8px">
-            <button class="btn btn-outline" id="rec-cancel" type="button" style="flex:1">Cancel</button>
-            <button class="btn btn-outline" id="rec-resend" type="button" style="flex:1">Resend link</button>
-            <button class="btn btn-primary" id="rec-check" type="button" style="flex:2">I've clicked the link</button>
-          </div>
         </form>
       </div>
 
@@ -1439,19 +1405,6 @@ function renderSettingsPage(container){
     </div>` : ''}
 
     ${isAdmin ? `
-    <div class="card card-pad" style="margin-top:16px;background:var(--surface-alt);border:1px dashed var(--border)">
-      <div style="display:flex;gap:12px;align-items:flex-start">
-        <div style="flex-shrink:0;color:var(--brand);margin-top:2px">${icon('info')}</div>
-        <div style="font-size:13.5px;line-height:1.55">
-          <strong>Password recovery is configured.</strong>
-          When you click <em>Reset Password</em> on any user below, Firebase will email a
-          set-new-password link to
-          <code style="background:var(--surface);padding:2px 6px;border-radius:6px;border:1px solid var(--border);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px">${escapeHtml(DB.resetInboxDisplay())}</code>.
-          Open that inbox, click the link, and set a default password to hand back to the user.
-          Keep this Gmail account secured with 2-factor authentication — it's the root of trust for password recovery.
-        </div>
-      </div>
-    </div>
     <div class="card" style="margin-top:16px">
       <div class="card-head">
         <h2>User Management</h2>
@@ -1478,101 +1431,19 @@ function renderSettingsPage(container){
     const cur = $('#pw-current').value, nw = $('#pw-new').value, cf = $('#pw-confirm').value;
     const errBox = $('#pw-error');
     const fail = (msg) => { errBox.textContent = msg; errBox.hidden = false; };
-    if (nw.length < 6){ fail('New password must be at least 6 characters.'); return; }
     if (nw !== cf){ fail('New password and confirmation do not match.'); return; }
     try {
-      const currentEmail = FB.auth.currentUser?.email || DB.emailFor(App.user.Username);
-      const cred = FB.EmailAuthProvider.credential(currentEmail, cur);
-      await FB.reauthenticateWithCredential(FB.auth.currentUser, cred);
-      const target = DB.emailFor(App.user.Username);
-      if (FB.auth.currentUser.email !== target){
-        try { await FB.updateEmail(FB.auth.currentUser, target); }
-        catch (migErr){ console.warn('Email migration deferred:', migErr?.code || migErr); }
-      }
-      await FB.updatePassword(FB.auth.currentUser, nw);
-      DB.logAudit(App.user, 'Updated', 'User', App.user.Username, 'Password changed');
+      await DB.changeMyPassword(cur, nw, App.user);
       errBox.hidden = true;
       toast('success', 'Password updated');
       $('#pwd-form').reset();
     } catch (err){
-      if (['auth/invalid-credential', 'auth/wrong-password'].includes(err.code)) fail('Current password is incorrect.');
-      else if (err.code === 'auth/weak-password') fail('New password is too weak.');
+      if (err.code === 'app/wrong-current') fail('Current password is incorrect.');
+      else if (err.code === 'app/too-short') fail('New password must be at least 6 characters.');
+      else if (err.code === 'app/no-current') fail('Enter your current password.');
       else { fail('Could not update password: ' + (err.message || err.code)); console.error(err); }
     }
   });
-
-  let recPendingEmail = null;
-  let recPendingPw = null;
-  let recPollTimer = null;
-  function recStopPolling(){ if (recPollTimer){ clearInterval(recPollTimer); recPollTimer = null; } }
-  function recShowPending(email){
-    recPendingEmail = email;
-    $('#rec-email').disabled = true;
-    $('#rec-current-pw').disabled = true;
-    $('#rec-pending-email').textContent = email;
-    $('#rec-pending').hidden = false;
-    $('#rec-actions').hidden = true;
-    $('#rec-actions-pending').hidden = false;
-    $('#rec-actions-pending').style.display = 'flex';
-    $('#rec-error').hidden = true;
-  }
-  function recResetToInitial(){
-    recStopPolling();
-    recPendingEmail = null;
-    $('#rec-email').disabled = false;
-    $('#rec-current-pw').disabled = false;
-    $('#rec-pending').hidden = true;
-    $('#rec-actions').hidden = false;
-    $('#rec-actions-pending').hidden = true;
-  }
-  async function recCheckOnce(byUser){
-    if (!recPendingEmail) return;
-    try {
-      const res = await DB.pollForVerification(recPendingEmail, App.user);
-      if (res.verified){
-        recStopPolling();
-        toast('success', 'Recovery email verified', `Reset links will now go to ${res.email}.`);
-        renderPage('settings');
-        return;
-      }
-      if (byUser){
-        const err = $('#rec-error');
-        err.textContent = "We haven't seen the verification click yet. Give it a few seconds and try again.";
-        err.hidden = false;
-      }
-    } catch (err){ console.warn('pollForVerification failed:', err); }
-  }
-  $('#rec-email-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const email = $('#rec-email').value.trim();
-    const cur = $('#rec-current-pw').value;
-    const errBox = $('#rec-error');
-    const fail = (msg) => { errBox.textContent = msg; errBox.hidden = false; };
-    if (!email){ fail('Enter a recovery email.'); return; }
-    if (!cur){ fail('Enter your current password to confirm.'); return; }
-    try {
-      await DB.beginRecoveryEmailVerification(email, cur, App.user);
-      recPendingPw = cur;
-      recShowPending(email);
-      recPollTimer = setInterval(() => recCheckOnce(false), 5000);
-    } catch (err){
-      console.error('beginRecoveryEmailVerification failed:', err);
-      fail(DB.friendlyRecoveryEmailError(err));
-    }
-  });
-  $('#rec-cancel')?.addEventListener('click', () => recResetToInitial());
-  $('#rec-resend')?.addEventListener('click', async () => {
-    if (!recPendingEmail || !recPendingPw) return;
-    const errBox = $('#rec-error'); errBox.hidden = true;
-    try {
-      await DB.beginRecoveryEmailVerification(recPendingEmail, recPendingPw, App.user);
-      toast('info', 'Verification link resent', `A fresh link is on the way to ${recPendingEmail}.`);
-    } catch (err){
-      errBox.textContent = DB.friendlyRecoveryEmailError(err);
-      errBox.hidden = false;
-    }
-  });
-  $('#rec-check')?.addEventListener('click', () => recCheckOnce(true));
 
   if (!isAdmin) return;
 
@@ -1726,23 +1597,14 @@ function renderSettingsPage(container){
           const btn = $('#u-save', bd);
           btn.disabled = true;
           try {
-            // Create the account on a secondary Firebase app instance so the
-            // signed-in admin session is not replaced by the new user.
-            const secondary = FB.getApps().some(a => a.name === 'user-creation')
-              ? FB.getApp('user-creation')
-              : FB.initializeApp(FB.firebaseConfig, 'user-creation');
-            const secondaryAuth = FB.getAuth(secondary);
-            await FB.createUserWithEmailAndPassword(secondaryAuth, DB.emailFor(username), pw);
-            await FB.signOut(secondaryAuth);
-            DB.addUserProfile({ Username: username, DisplayName: display, Role: role, ForceNo: forceno }, App.user);
+            DB.addUserProfile({ Username: username, Password: pw, DisplayName: display, Role: role, ForceNo: forceno }, App.user);
             toast('success', 'User added', username);
             closeModal();
             renderPage('settings');
           } catch (e2){
             btn.disabled = false;
-            if (e2.code === 'auth/email-already-in-use') fail('That username is already taken.');
-            else if (e2.code === 'auth/weak-password') fail('Password is too weak (minimum 6 characters).');
-            else { fail('Could not create user: ' + (e2.message || e2.code)); console.error(e2); }
+            fail('Could not create user: ' + (e2.message || e2.code));
+            console.error(e2);
           }
         }),
       });
@@ -1906,10 +1768,9 @@ function openEditUserModal(u, onSaved){
       <div class="field"><label>Display Name *</label><input type="text" id="eu-display" value="${escapeHtml(u.DisplayName)}"></div>
       <div class="field"><label>Force No.</label><input type="text" id="eu-forceno" value="${escapeHtml(u.ForceNo||'')}" placeholder="e.g. 01020304"></div>
       <div class="section-title">Change Username</div>
-      <p class="helper-text" style="margin-bottom:10px">Changing the username updates the login email. Admin must know the user's current password.</p>
+      <p class="helper-text" style="margin-bottom:10px">Rename the Force No. used to log in. All existing movements will be re-attributed.</p>
       <div class="form-row">
         <div class="field"><label>New Username</label><input type="text" id="eu-newname" value="${escapeHtml(u.Username)}" placeholder="${escapeHtml(u.Username)}"></div>
-        <div class="field"><label>User's Current Password</label><input type="password" id="eu-curpw" placeholder="Required only if renaming"></div>
       </div>
       <div id="eu-error" class="error-text" hidden></div>`,
     footerHtml: `<button class="btn btn-outline" data-close-modal type="button">Cancel</button><button class="btn btn-primary" id="eu-save" type="button">Save Changes</button>`,
@@ -1917,7 +1778,6 @@ function openEditUserModal(u, onSaved){
       const display  = $('#eu-display', bd).value.trim();
       const forceno  = $('#eu-forceno', bd).value.trim();
       const newname  = $('#eu-newname', bd).value.trim().toLowerCase();
-      const curpw    = $('#eu-curpw', bd).value;
       const err = $('#eu-error', bd);
       const fail = (msg) => { err.textContent = msg; err.hidden = false; };
       if (!display){ fail('Display name is required.'); return; }
@@ -1928,9 +1788,8 @@ function openEditUserModal(u, onSaved){
         DB.updateUserProfile(u.Username, { DisplayName: display, ForceNo: forceno }, App.user);
         // Username rename (if changed)
         if (newname && newname !== u.Username){
-          if (!curpw){ fail('Current password is required to change the username.'); btn.disabled = false; return; }
           if (!/^[a-z0-9._-]+$/.test(newname)){ fail('Username can only contain letters, numbers, dots, dashes and underscores.'); btn.disabled = false; return; }
-          await DB.updateUsername(u.Username, newname, curpw, App.user);
+          await DB.updateUsername(u.Username, newname, App.user);
           if (App.user.Username === u.Username) App.user.Username = newname;
         }
         toast('success', 'User updated', newname || u.Username);
@@ -1939,8 +1798,6 @@ function openEditUserModal(u, onSaved){
       } catch(e){
         btn.disabled = false;
         if (e.code === 'username-taken') fail('That username is already taken.');
-        else if (['auth/invalid-credential','auth/wrong-password'].includes(e.code)) fail('Current password is incorrect.');
-        else if (e.code === 'auth/email-already-in-use') fail('That username is already taken.');
         else { fail('Error: ' + (e.message || e.code)); console.error(e); }
       }
     }),
@@ -1948,41 +1805,38 @@ function openEditUserModal(u, onSaved){
 }
 
 function openResetPasswordModal(username){
-  const inbox = DB.resetInboxDisplay();
   const u = DB.findUser(username);
   const label = u ? `${u.DisplayName} (${username})` : username;
+  const DEFAULT_PW = 'abc123';
   openModal({
-    title: `Send Password Reset Link`,
+    title: 'Reset Password',
     bodyHtml: `
       <p style="margin:0 0 12px;font-size:14px;line-height:1.55">
-        Firebase will email a <strong>set new password</strong> link for
-        <strong>${escapeHtml(label)}</strong> to the admin recovery inbox:
+        Reset the password for <strong>${escapeHtml(label)}</strong> to the default:
       </p>
-      <div style="background:var(--surface-alt);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px;margin-bottom:12px">
-        ${escapeHtml(inbox)}
+      <div style="background:var(--surface-alt);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;font-weight:600;text-align:center;margin-bottom:12px">
+        ${DEFAULT_PW}
       </div>
       <p class="helper-text" style="margin:0">
-        Open that mailbox, click the link, and set a default password (e.g. <code>mtops123</code> or the user's Force No.). Then share the new password with the user in person.
+        Share this password with the user in person. Ask them to log in and change it from Settings → Change Password.
       </p>
       <div id="rp-error" class="error-text" hidden style="margin-top:10px"></div>`,
-    footerHtml: `<button class="btn btn-outline" data-close-modal type="button">Cancel</button><button class="btn btn-primary" id="rp-send" type="button">${icon('share')} Send Reset Link</button>`,
-    onMount: (bd) => $('#rp-send', bd).addEventListener('click', async () => {
-      const btn = $('#rp-send', bd);
+    footerHtml: `<button class="btn btn-outline" data-close-modal type="button">Cancel</button><button class="btn btn-primary" id="rp-do" type="button">Reset to ${DEFAULT_PW}</button>`,
+    onMount: (bd) => $('#rp-do', bd).addEventListener('click', async () => {
+      const btn = $('#rp-do', bd);
       const err = $('#rp-error', bd);
       const fail = (msg) => { err.textContent = msg; err.hidden = false; };
       btn.disabled = true;
-      btn.textContent = 'Sending…';
+      btn.textContent = 'Resetting…';
       try {
-        await DB.sendPasswordResetLink(username, App.user);
-        toast('success', 'Reset link sent', `Check ${inbox}`);
+        await DB.adminResetPasswordToDefault(username, App.user);
+        toast('success', 'Password reset', `${label} — new password is ${DEFAULT_PW}`);
         closeModal();
       } catch(e){
         btn.disabled = false;
-        btn.innerHTML = `${icon('share')} Send Reset Link`;
-        if (e.code === 'auth/user-not-found') fail('No auth account for this user. Ask the user to sign in once so the account can migrate.');
-        else if (e.code === 'auth/too-many-requests') fail('Firebase is rate-limiting reset emails. Wait a few minutes and try again.');
-        else if (e.code === 'auth/network-request-failed') fail('Network error — check your internet connection.');
-        else { fail('Error: ' + (e.message || e.code)); console.error(e); }
+        btn.textContent = `Reset to ${DEFAULT_PW}`;
+        fail('Error: ' + (e.message || e.code));
+        console.error(e);
       }
     }),
   });

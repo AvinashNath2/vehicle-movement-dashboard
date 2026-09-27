@@ -1,18 +1,22 @@
 /* ==========================================================================
    Data layer — Cloud Firestore.
 
-   All records live in Firestore collections (vehicles, users, movements,
-   auditLog) shared by every visitor. Live snapshot listeners keep the
-   in-memory arrays below up to date, so page renderers can keep reading
-   DB.vehicles / DB.movements synchronously exactly like before.
+   All records — including user credentials — live in Firestore collections
+   (vehicles, users, movements, auditLog) shared by every visitor. Live
+   snapshot listeners keep the in-memory arrays below up to date, so page
+   renderers can keep reading DB.vehicles / DB.movements synchronously.
 
    Mutations update the local array immediately (so the UI can re-render
    right away) and write through to Firestore in the background; a failed
    write surfaces as an error toast.
 
-   User credentials live in Firebase Authentication (usernames are mapped to
-   synthetic emails via emailFor()) — the users collection only holds
-   profile data (DisplayName, Role, Active), never passwords.
+   Password model (deliberately simple, not "secure"): each users/<forceNo>
+   doc stores a plaintext Password field. Login and Change Password compare
+   strings against that field. Admin has a one-click "Reset Password"
+   action that sets the field back to DEFAULT_ADMIN_RESET_PASSWORD. There
+   is no Firebase Authentication — see firestore.rules for the collection-
+   scoped write bounds that stop trivial abuse. This trade-off is
+   explicitly accepted for this deployment (~66 operators, single unit).
 
    data/vehicle-register.xlsx remains as the seed/reset baseline and the
    import/export format.
@@ -20,17 +24,7 @@
 
 const BASELINE_URL = 'data/vehicle-register.xlsx';
 
-// Password-reset routing: every user's Firebase Auth email is a Gmail
-// plus-alias of RESET_INBOX. Password reset links Firebase sends therefore
-// all land in this single inbox, which the MT admin owns. Keep the inbox
-// secured with 2FA — it's the root of trust for password recovery.
-const RESET_INBOX = 'avinashnath2@gmail.com';
-const LEGACY_EMAIL_DOMAIN = 'vmd-fleet.app';
-
-function _splitInbox(inbox){
-  const at = inbox.indexOf('@');
-  return { local: inbox.slice(0, at), domain: inbox.slice(at + 1) };
-}
+const DEFAULT_ADMIN_RESET_PASSWORD = 'abc123';
 
 // Older docs/backups predate the Status field — derive it so nothing needs
 // a migration: a recorded closing KM means the trip is finished.
@@ -49,61 +43,13 @@ const DB = {
   _ready: false,
   onRemoteChange: null, // set by main.js
 
-  emailFor(username){
-    const u = String(username || '').trim().toLowerCase();
-    const { local, domain } = _splitInbox(RESET_INBOX);
-    return `${local}+${u}@${domain}`;
-  },
-  legacyEmailFor(username){
-    return String(username || '').trim().toLowerCase() + '@' + LEGACY_EMAIL_DOMAIN;
-  },
-  resetInboxDisplay(){ return RESET_INBOX; },
-
-  // Reads the /usernameLookup/<forceNo> doc unauthenticated (rules allow public
-  // read). Returns the currently-known Firebase Auth email for that Force No.,
-  // or null if the lookup doesn't exist yet.
-  async lookupAuthEmail(forceNo){
+  // One-shot fetch used at login time (before we have any live listeners)
+  // and by session revalidation. Returns the user doc or null.
+  async fetchUser(forceNo){
     const key = String(forceNo || '').trim().toLowerCase();
     if (!key) return null;
-    try {
-      const snap = await FB.getDoc(FB.doc(FB.db, 'usernameLookup', key));
-      return snap.exists() ? (snap.data().authEmail || null) : null;
-    } catch (err){
-      console.warn('lookupAuthEmail failed:', err?.code || err?.message);
-      return null;
-    }
-  },
-
-  // Called on every successful sign-in path so the lookup self-heals when the
-  // auth email drifts (renames, out-of-band Firebase Console edits, or an
-  // earlier verifyBeforeUpdateEmail that finished on another device).
-  async writeUsernameLookup(forceNo, authEmail){
-    const key = String(forceNo || '').trim().toLowerCase();
-    const email = String(authEmail || '').trim().toLowerCase();
-    if (!key || !email) return;
-    try {
-      await FB.setDoc(FB.doc(FB.db, 'usernameLookup', key), {
-        authEmail: email,
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
-    } catch (err){
-      // Non-fatal — the user is still signed in and can retry later.
-      console.warn('writeUsernameLookup failed:', err?.code || err?.message);
-    }
-  },
-
-  async _signInWithFallback(auth, username, password){
-    const codes = ['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password', 'auth/invalid-email'];
-    const cached = await this.lookupAuthEmail(username);
-    const candidates = [];
-    if (cached) candidates.push(cached);
-    candidates.push(this.emailFor(username), this.legacyEmailFor(username));
-    let lastErr;
-    for (const email of candidates){
-      try { return await FB.signInWithEmailAndPassword(auth, email, password); }
-      catch (err){ if (!codes.includes(err.code)) throw err; lastErr = err; }
-    }
-    throw lastErr;
+    const snap = await FB.getDoc(FB.doc(FB.db, 'users', key));
+    return snap.exists() ? snap.data() : null;
   },
 
   /* ---------------- live subscriptions ---------------- */
@@ -129,12 +75,24 @@ const DB = {
     });
 
     const desc = (field) => (a, b) => String(b[field]).localeCompare(String(a[field]));
-    await Promise.all([
+    // The users collection carries plaintext passwords; broadcasting every
+    // change to every open tab would leak them across sessions. Only Admin
+    // sessions live-listen — Operators keep a one-element DB.users that
+    // holds just their own profile, and other pages fall back to on-demand
+    // fetchUser() when they need someone else's DisplayName / ForceNo.
+    const isAdminSession = typeof App !== 'undefined' && App.user?.Role === 'Admin';
+    const subs = [
       subscribe('vehicles',  rows => this.vehicles  = rows.sort(desc('AddedOn'))),
-      subscribe('users',     rows => this.users     = rows),
       subscribe('movements', rows => this.movements = rows.map(normalizeMovement).sort(desc('CreatedAt'))),
       subscribe('auditLog',  rows => this.auditLog  = rows.sort(desc('Timestamp'))),
-    ]);
+    ];
+    if (isAdminSession){
+      subs.push(subscribe('users', rows => this.users = rows));
+    } else if (typeof App !== 'undefined' && App.user){
+      // Operator session: seed DB.users with just this operator's own profile.
+      this.users = [App.user];
+    }
+    await Promise.all(subs);
     this._ready = true;
   },
 
@@ -301,13 +259,23 @@ const DB = {
     return m;
   },
 
-  /* ---------------- users (profiles — credentials live in Firebase Auth) ---------------- */
+  /* ---------------- users (profile + password, both in Firestore) ---------------- */
   findUser(username){
     const key = String(username || '').trim().toLowerCase();
     return this.users.find(u => u.Username.toLowerCase() === key);
   },
-  addUserProfile({ Username, DisplayName, Role, ForceNo }, user){
-    const u = { Username: Username.trim().toLowerCase(), DisplayName: DisplayName.trim(), Role, Active: 'Yes', ForceNo: (ForceNo || '').trim() };
+  addUserProfile({ Username, Password, DisplayName, Role, ForceNo }, user){
+    const now = new Date().toISOString();
+    const u = {
+      Username: Username.trim().toLowerCase(),
+      Password: String(Password || DEFAULT_ADMIN_RESET_PASSWORD),
+      DisplayName: DisplayName.trim(),
+      Role,
+      Active: 'Yes',
+      ForceNo: (ForceNo || '').trim(),
+      CreatedAt: now,
+      UpdatedAt: now,
+    };
     this.users.push(u);
     this._write(FB.setDoc(FB.doc(FB.db, 'users', u.Username), u));
     this.logAudit(user, 'Created', 'User', u.Username, `User added with role ${u.Role}`);
@@ -327,23 +295,18 @@ const DB = {
       u.ForceNo = newFno;
     }
     if (changes.length){
-      this._write(FB.updateDoc(FB.doc(FB.db, 'users', u.Username), { DisplayName: u.DisplayName, ForceNo: u.ForceNo || '' }));
+      u.UpdatedAt = new Date().toISOString();
+      this._write(FB.updateDoc(FB.doc(FB.db, 'users', u.Username), { DisplayName: u.DisplayName, ForceNo: u.ForceNo || '', UpdatedAt: u.UpdatedAt }));
       this.logAudit(user, 'Updated', 'User', u.Username, changes.join('; '));
     }
     return u;
   },
-  async updateUsername(oldUsername, newUsername, currentPw, user){
+  async updateUsername(oldUsername, newUsername, user){
     const newName = newUsername.trim().toLowerCase();
     if (this.findUser(newName)) throw Object.assign(new Error('That username is already taken.'), { code: 'username-taken' });
-    const appName = 'username-change';
-    const secondary = FB.getApps().some(a => a.name === appName)
-      ? FB.getApp(appName) : FB.initializeApp(FB.firebaseConfig, appName);
-    const secondaryAuth = FB.getAuth(secondary);
-    await this._signInWithFallback(secondaryAuth, oldUsername, currentPw);
-    await FB.updateEmail(secondaryAuth.currentUser, this.emailFor(newName));
-    await FB.signOut(secondaryAuth);
     const oldUser = this.findUser(oldUsername);
-    const newUserDoc = { ...oldUser, Username: newName };
+    if (!oldUser) throw new Error('User does not exist.');
+    const newUserDoc = { ...oldUser, Username: newName, UpdatedAt: new Date().toISOString() };
     const batch = FB.writeBatch(FB.db);
     batch.set(FB.doc(FB.db, 'users', newName), newUserDoc);
     batch.delete(FB.doc(FB.db, 'users', oldUsername));
@@ -355,100 +318,31 @@ const DB = {
     this.logAudit(user, 'Updated', 'User', oldUsername, `Username changed to "${newName}" (${toUpdate.length} movement(s) updated)`);
     return newUserDoc;
   },
-  async adminResetPassword(username, currentPw, newPw, adminUser){
-    const appName = 'pwd-reset';
-    const secondary = FB.getApps().some(a => a.name === appName)
-      ? FB.getApp(appName) : FB.initializeApp(FB.firebaseConfig, appName);
-    const secondaryAuth = FB.getAuth(secondary);
-    await this._signInWithFallback(secondaryAuth, username, currentPw);
-    await FB.updatePassword(secondaryAuth.currentUser, newPw);
-    await FB.signOut(secondaryAuth);
-    this.logAudit(adminUser, 'Updated', 'User', username, 'Password reset by admin');
+  // Admin one-click: set any user's password back to the well-known default.
+  async adminResetPasswordToDefault(username, adminUser){
+    const u = this.findUser(username);
+    if (!u) throw new Error('User does not exist.');
+    const now = new Date().toISOString();
+    u.Password = DEFAULT_ADMIN_RESET_PASSWORD;
+    u.UpdatedAt = now;
+    await FB.updateDoc(FB.doc(FB.db, 'users', u.Username), { Password: u.Password, UpdatedAt: now });
+    this.logAudit(adminUser, 'Updated', 'User', u.Username, `Password reset to default (${DEFAULT_ADMIN_RESET_PASSWORD}) by admin`);
+    return DEFAULT_ADMIN_RESET_PASSWORD;
   },
-  async sendPasswordResetLink(username, adminUser){
-    // Firebase mails a "set new password" link to the auth email of the
-    // account. Every user's auth email is a plus-alias of RESET_INBOX, so
-    // the mail lands in that single Gmail inbox regardless of which user
-    // triggered it. Admin opens the mail, clicks the link, sets a default.
-    await FB.sendPasswordResetEmail(FB.auth, this.emailFor(username));
-    this.logAudit(adminUser, 'Updated', 'User', username, `Password reset link sent to ${RESET_INBOX}`);
-  },
-  // Kicks off verification for a new recovery email. Reauths the current
-  // session, then asks Firebase to send a verification link to `newEmail`.
-  // Nothing about the Firebase Auth email or Firestore profile changes yet —
-  // that only happens once the user clicks the link and pollForVerification
-  // detects it. Callers must persist { pendingEmail, sentAt } and use it to
-  // drive the modal's "check your inbox" state.
-  async beginRecoveryEmailVerification(newEmail, currentPassword, user){
-    const email = String(newEmail || '').trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw Object.assign(new Error('Enter a valid email address.'), { code: 'app/invalid-email' });
-    if (user.RecoveryEmail && email === String(user.RecoveryEmail).toLowerCase()){
-      throw Object.assign(new Error('That is already your recovery email. Enter a different one.'), { code: 'app/same-as-current' });
+  // User changes their own password. Verifies the current password against
+  // the stored value first. Mutates App.user via the passed reference so
+  // subsequent session revalidation sees the new password too.
+  async changeMyPassword(currentPw, newPw, user){
+    if (!currentPw) throw Object.assign(new Error('Enter your current password.'), { code: 'app/no-current' });
+    if (!newPw || String(newPw).length < 6) throw Object.assign(new Error('New password must be at least 6 characters.'), { code: 'app/too-short' });
+    if (String(user.Password) !== String(currentPw)){
+      throw Object.assign(new Error('Current password is incorrect.'), { code: 'app/wrong-current' });
     }
-    if (this.users.some(u => u.Username !== user.Username && String(u.RecoveryEmail || '').toLowerCase() === email)){
-      throw Object.assign(new Error('That email is already used by another account. Enter a different one.'), { code: 'app/email-taken' });
-    }
-    const currentEmail = FB.auth.currentUser?.email;
-    if (!currentEmail) throw Object.assign(new Error('You are not signed in. Reload the page and log in again.'), { code: 'app/no-session' });
-    if (!currentPassword) throw Object.assign(new Error('Enter your current password to confirm.'), { code: 'app/no-password' });
-    const cred = FB.EmailAuthProvider.credential(currentEmail, currentPassword);
-    await FB.reauthenticateWithCredential(FB.auth.currentUser, cred);
-    await FB.verifyBeforeUpdateEmail(FB.auth.currentUser, email);
-    return { pendingEmail: email, sentAt: new Date().toISOString() };
-  },
-
-  // Called on a timer, on window focus, and on the manual "I've clicked the
-  // link" button. Reloads the Firebase user; if the auth email has flipped to
-  // pendingEmail, forces a fresh ID token (needed before Firestore writes) and
-  // persists the RecoveryEmail on the user's profile + heals usernameLookup.
-  async pollForVerification(pendingEmail, user){
-    if (!FB.auth.currentUser) return { verified: false, reason: 'no-session' };
-    try { await FB.auth.currentUser.reload(); }
-    catch (err){ return { verified: false, reason: err?.code || 'reload-failed' }; }
-    const current = FB.auth.currentUser.email;
-    if (String(current).toLowerCase() !== String(pendingEmail).toLowerCase()){
-      return { verified: false, reason: 'not-yet' };
-    }
-    try { await FB.auth.currentUser.getIdToken(true); }
-    catch (err){ console.warn('getIdToken(true) failed after email change:', err?.code || err?.message); }
-    await FB.updateDoc(FB.doc(FB.db, 'users', user.Username), { RecoveryEmail: current });
-    await this.writeUsernameLookup(user.Username, current);
-    user.RecoveryEmail = current;
-    this.logAudit(user, 'Updated', 'User', user.Username, `Recovery email verified: ${current}`);
-    return { verified: true, email: current };
-  },
-
-  friendlyRecoveryEmailError(err){
-    switch (err?.code){
-      case 'app/invalid-email':
-      case 'app/same-as-current':
-      case 'app/email-taken':
-      case 'app/no-session':
-      case 'app/no-password':
-        return err.message;
-      case 'auth/invalid-credential':
-      case 'auth/wrong-password':
-        return 'Current password is incorrect. Try again.';
-      case 'auth/too-many-requests':
-        return 'Too many attempts. Wait a few minutes and try again.';
-      case 'auth/network-request-failed':
-        return 'Network error. Check your connection and try again.';
-      case 'auth/invalid-email':
-        return 'That email address is invalid.';
-      case 'auth/email-already-in-use':
-        return 'That email is already used by another Firebase account. Enter a different one.';
-      case 'auth/requires-recent-login':
-        return 'Your session is too old. Sign out and sign back in, then try again.';
-      case 'auth/operation-not-allowed':
-        return 'Firebase is blocking this change. Ask the admin to open Firebase Console → Authentication → Settings → uncheck "Email enumeration protection", then try again.';
-      default:
-        return `Could not save recovery email: ${err?.message || err?.code || 'unknown error'}`;
-    }
-  },
-  async sendPasswordResetToEmail(email){
-    const addr = String(email || '').trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr)) throw new Error('Enter a valid email address.');
-    await FB.sendPasswordResetEmail(FB.auth, addr);
+    const now = new Date().toISOString();
+    user.Password = String(newPw);
+    user.UpdatedAt = now;
+    await FB.updateDoc(FB.doc(FB.db, 'users', user.Username), { Password: user.Password, UpdatedAt: now });
+    this.logAudit(user, 'Updated', 'User', user.Username, 'Password changed');
   },
   setUserActive(username, active, user){
     const u = this.findUser(username);

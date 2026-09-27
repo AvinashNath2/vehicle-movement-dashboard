@@ -3,15 +3,12 @@
    so this module is the one place that deals with imports.
 
    The apiKey below is a public identifier, not a secret — access control is
-   enforced by Firestore security rules + Firebase Authentication. */
+   enforced by Firestore security rules. Authentication is handled entirely
+   by the app: passwords are stored on user docs in Firestore and compared
+   client-side. See firestore.rules for the collection-scoped write bounds
+   that stop trivial abuse. */
 
-import { initializeApp, getApp, getApps } from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js';
-import {
-  getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  onAuthStateChanged, signOut, updatePassword, updateEmail,
-  verifyBeforeUpdateEmail,
-  reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail,
-} from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js';
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch,
@@ -27,7 +24,6 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
 
 let db;
 try {
@@ -40,10 +36,6 @@ try {
 }
 
 window.FB = {
-  app, auth, db, firebaseConfig,
-  initializeApp, getApp, getApps, getAuth,
-  signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  onAuthStateChanged, signOut, updatePassword, sendPasswordResetEmail,
-  reauthenticateWithCredential, EmailAuthProvider, updateEmail, verifyBeforeUpdateEmail,
+  app, db, firebaseConfig,
   collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch,
 };
