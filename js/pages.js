@@ -81,7 +81,7 @@ function renderDashboardPage(container){
 
       <div class="dash-grid">
         <div class="card">
-          <div class="card-head"><h2>Daily KM Movement (Last 7 Days)</h2></div>
+          <div class="card-head"><h2 id="daily-chart-title">Daily KM Movement</h2></div>
           <div class="chart-wrap" id="daily-chart"></div>
         </div>
         <div class="card">
@@ -125,13 +125,30 @@ function renderDashboardPage(container){
     ${statCard('route', 'orange', 'Total KM Travelled', formatNumber(totalKm), sameDay ? 'km on selected date' : 'km in selected range')}
   `;
 
-  // last 7 days, always anchored to real "today" regardless of filters (driver filter still applies)
+  // Build one bar per day in the selected filter range (inclusive). Vehicle
+  // and driver filters both apply so the bars line up with the KPIs above.
   const days = [];
-  for (let i = 6; i >= 0; i--){
-    const d = addDaysISO(todayISO(), -i);
-    const dayRows = applyDriverFilter(DB.movements.filter(m => m.Date === d), f.driver);
-    const sum = dayRows.reduce((s,m) => s + Number(m.TotalKM||0), 0);
-    days.push({ dateISO: d, label: formatDateShort(d), value: sum });
+  {
+    const start = f.from || todayISO();
+    const end   = f.to   || todayISO();
+    // Guard against inverted ranges (from > to) — swap so we still render.
+    const [lo, hi] = start <= end ? [start, end] : [end, start];
+    let cursor = lo, safety = 0;
+    while (cursor <= hi && safety++ < 400){
+      const dayRows = applyDriverFilter(
+        DB.movements.filter(m => m.Date === cursor && (f.vehicle === 'ALL' || m.RegistrationNo === f.vehicle)),
+        f.driver
+      );
+      const sum = dayRows.reduce((s,m) => s + Number(m.TotalKM||0), 0);
+      days.push({ dateISO: cursor, label: formatDateShort(cursor), value: sum });
+      cursor = addDaysISO(cursor, 1);
+    }
+  }
+  const titleEl = $('#daily-chart-title');
+  if (titleEl){
+    titleEl.textContent = f.from === f.to
+      ? `Daily KM Movement (${formatDateShort(f.from)})`
+      : `Daily KM Movement (${days.length} day${days.length === 1 ? '' : 's'})`;
   }
   renderDailyKmChart($('#daily-chart'), days);
 
@@ -1202,7 +1219,7 @@ function buildDashboardShareCard(f, rows, days, activeDriver, totalKm, vehiclesU
     </div>
     <div class="dsc-cols">
       <div class="dsc-section">
-        <div class="dsc-section-title">Daily KM (Last 7 Days)</div>
+        <div class="dsc-section-title">Daily KM (${days.length} day${days.length === 1 ? '' : 's'})</div>
         <div class="dsc-bar-wrap">${daysHtml}</div>
       </div>
       <div class="dsc-section">
