@@ -13,15 +13,13 @@ service cloud.firestore {
 
     match /users/{forceNo} {
       allow read: if true;
-      // Writes must carry only the fields the client knows about, must fit
-      // in ~4KB, and cannot include arbitrary sub-collections.
-      allow write: if request.resource == null
-        || (
-          request.resource.data.keys().hasOnly([
-            'Username','Password','DisplayName','Role','Active','ForceNo','CreatedAt','UpdatedAt'
-          ])
-          && request.resource.size() < 4096
-        );
+      // Any write is allowed as long as the resulting document fits in ~4KB.
+      // We deliberately don't enforce a strict field allow-list here: real
+      // docs carry legacy fields (Rank, etc.) and imports may introduce new
+      // ones over time — a schema check breaks Change Password / admin
+      // reset writes on any doc that still has an old field. Size cap is
+      // the practical stop-gap against abuse.
+      allow write: if request.resource == null || request.resource.size() < 4096;
     }
 
     match /vehicles/{regNo} {
